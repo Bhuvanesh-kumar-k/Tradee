@@ -7,6 +7,9 @@ from typing import Optional, Dict, List
 from datetime import datetime
 from app.core.config import settings
 
+# Global dictionary to track active listeners by user_id
+active_listeners: Dict[int, TelegramSignalListener] = {}
+
 
 class TelegramSignalParser:
     """Parse trading signals from Telegram messages"""

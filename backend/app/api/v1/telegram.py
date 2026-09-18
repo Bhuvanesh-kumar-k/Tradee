@@ -67,62 +67,10 @@ async def start_telegram_listener(
         db.add(signal)
         await db.commit()
         
-        # AI Analysis if enabled
-        if current_user.ai_enabled and current_user.encrypted_ai_api_key:
-            from app.core.encryption import decrypt_data
-            try:
-                api_key = decrypt_data(current_user.encrypted_ai_api_key)
-                
-                # Get market context
-                btc_trend = await get_market_trend("B-BTC_USDT", "1d")
-                coin_pair = signal_data.get("coin_pair", "")
-                if coin_pair:
-                    coin_1d_trend = await get_market_trend(coin_pair, "1d")
-                    coin_1h_trend = await get_market_trend(coin_pair, "1h")
-                    
-                    # Get indicator values
-                    df = await fetch_raw_candles(coin_pair, "1h", limit=100)
-                    if df is not None:
-                        df = calculate_all_indicators(df)
-                        last_bar = df.iloc[-2]
-                        
-                        market_context = {
-                            "btc_trend": btc_trend,
-                            "coin_1d_trend": coin_1d_trend,
-                            "coin_1h_trend": coin_1h_trend,
-                            "rsi": last_bar.get("rsi"),
-                            "macd_hist": last_bar.get("macdhist"),
-                            "adx": last_bar.get("adx"),
-                            "ema50": last_bar.get("ema50"),
-                            "ema200": last_bar.get("ema200")
-                        }
-                        
-                        # Get AI analysis
-                        ai_result = await AIService.analyze_signal(
-                            current_user.ai_provider,
-                            api_key,
-                            signal_data,
-                            market_context
-                        )
-                        
-                        signal.ai_verdict = ai_result["verdict"]
-                        signal.ai_reasoning = ai_result["reasoning"]
-                        signal.ai_confidence = ai_result["confidence"]
-                        signal.market_trend = coin_1d_trend
-                        signal.indicator_confluence = market_context
-                        signal.is_processed = True
-                        signal.processed_at = signal_data.get("timestamp")
-                        
-                        await db.commit()
-                        
-                        # Send WebSocket notification
-                        from app.api.v1.websocket import send_signal_alert
-                        await send_signal_alert(current_user.id, {
-                            "signal": signal_data,
-                            "ai_verdict": ai_result
-                        })
-            except Exception as e:
-                print(f"AI analysis failed: {e}")
+        # AI Analysis if enabled - requires AI API key from headers
+        # Note: AI keys are now stored client-side and passed via headers
+        # This endpoint would need to accept X-AI-Key header for AI analysis
+        # For now, skip AI analysis as it requires ephemeral key passing
     
     listener.set_signal_callback(handle_signal)
     
@@ -196,3 +144,4 @@ async def get_telegram_status(
         "channels": current_user.telegram_channels,
         "has_credentials": bool(current_user.telegram_api_id and current_user.telegram_api_hash)
     }
+ch

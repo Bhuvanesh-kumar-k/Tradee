@@ -53,6 +53,6 @@ class TradeLog(Base):
     
     log_type = Column(String, nullable=False)  # SCAN, SIGNAL, ENTRY, EXIT, ALERT
     message = Column(Text, nullable=False)
-    metadata = Column(JSON, nullable=True)
+    trade_metadata = Column(JSON, nullable=True)
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())

@@ -122,7 +122,7 @@ class PositionTracker:
             trade_id=trade.id,
             log_type="EXIT",
             message=f"Position closed: {exit_reason}",
-            metadata={
+            trade_metadata={
                 "exit_price": current_price,
                 "pnl": trade.pnl,
                 "pnl_percentage": trade.pnl_percentage
@@ -142,7 +142,7 @@ class PositionTracker:
         trade_id: Optional[int],
         log_type: str,
         message: str,
-        metadata: Optional[dict] = None
+        trade_metadata: Optional[dict] = None
     ):
         """Log a trade event"""
         log = TradeLog(
@@ -150,7 +150,7 @@ class PositionTracker:
             trade_id=trade_id,
             log_type=log_type,
             message=message,
-            metadata=metadata
+            trade_metadata=trade_metadata
         )
         db.add(log)
         await db.commit()

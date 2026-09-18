@@ -6,7 +6,8 @@ from app.models.user import User
 from app.models.telegram_signal import TelegramSignal
 from app.services.telegram_service import TelegramSignalListener, active_listeners
 from app.services.ai_service import AIService
-from app.core.market_data import get_market_trend, fetch_raw_candles
+from app.core.strategy import get_market_trend
+from app.core.market_data import fetch_raw_candles
 from app.core.indicators import calculate_all_indicators
 from sqlalchemy import select
 from typing import List

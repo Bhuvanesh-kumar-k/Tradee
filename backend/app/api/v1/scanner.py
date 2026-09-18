@@ -4,8 +4,7 @@ from app.core.database import get_db
 from app.api.deps import get_current_user, get_current_verified_user
 from app.models.user import User
 from app.schemas.scanner import SingleCoinCheckRequest, CoinAnalysisResult, ScannerLogResponse
-from app.core.strategy import evaluate_pair, evaluate_all_markets
-from app.core.market_data import get_market_trend
+from app.core.strategy import evaluate_pair, evaluate_all_markets, get_market_trend
 from app.core.news_calendar import circuit_breaker
 from app.models.scanner_log import ScannerLog
 from app.services.coindcx_executor import CoinDCXExecutor

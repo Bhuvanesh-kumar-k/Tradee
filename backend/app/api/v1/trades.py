@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Header
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
 from app.core.database import get_db
@@ -7,7 +7,7 @@ from app.models.user import User
 from app.models.trade import Trade
 from app.schemas.trade import TradeResponse, ManualCloseRequest, TradeStats
 from app.services.position_tracker import PositionTracker
-from app.services.coindcx_executor import get_user_executor
+from app.services.coindcx_executor import CoinDCXExecutor
 from app.core.news_calendar import circuit_breaker
 
 router = APIRouter(prefix="/trades", tags=["Trades"])
@@ -56,7 +56,9 @@ async def close_position(
     request: ManualCloseRequest,
     background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_verified_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    x_coindcx_key: str = Header(None, alias="XCoinDCXKey"),
+    x_coindcx_secret: str = Header(None, alias="XCoinDCXSecret"),
 ):
     """Manually close a position"""
     # Get the trade
@@ -77,9 +79,9 @@ async def close_position(
             detail="Trade not found or already closed"
         )
     
-    # Execute close on CoinDCX
-    executor = await get_user_executor(current_user)
-    if executor:
+    # Execute close on CoinDCX using ephemeral headers
+    if x_coindcx_key and x_coindcx_secret:
+        executor = CoinDCXExecutor(x_coindcx_key, x_coindcx_secret)
         try:
             # Calculate quantity to close
             quantity = (trade.margin_used * trade.leverage) / trade.entry_price

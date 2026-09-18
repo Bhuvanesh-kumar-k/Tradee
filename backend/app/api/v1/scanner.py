@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Header
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.api.deps import get_current_user, get_current_verified_user
@@ -8,12 +8,19 @@ from app.core.strategy import evaluate_pair, evaluate_all_markets
 from app.core.market_data import get_market_trend
 from app.core.news_calendar import circuit_breaker
 from app.models.scanner_log import ScannerLog
-from app.services.coindcx_executor import get_user_executor
+from app.services.coindcx_executor import CoinDCXExecutor
 from sqlalchemy import select
 from datetime import datetime
 import httpx
 
 router = APIRouter(prefix="/scanner", tags=["Market Scanner"])
+
+
+async def convert_to_usdt(amount: float, preferred_currency: str) -> float:
+    """Convert amount to USDT based on preferred currency"""
+    if preferred_currency == "INR":
+        return amount / 90.0  # Approximate conversion rate
+    return amount
 
 
 @router.get("/status")
@@ -60,9 +67,9 @@ async def check_single_coin(
     # Determine capital allocation
     capital = current_user.custom_margin_allocation
     if capital is None:
-        # Fetch live balance from CoinDCX
-        executor = await get_user_executor(current_user)
-        if executor:
+        # Fetch live balance from CoinDCX using ephemeral headers
+        if x_coindcx_key and x_coindcx_secret:
+            executor = CoinDCXExecutor(x_coindcx_key, x_coindcx_secret)
             balance_data = await executor.get_futures_balance()
             if balance_data:
                 total_balance = 0.0

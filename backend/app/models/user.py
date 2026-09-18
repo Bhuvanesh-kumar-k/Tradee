@@ -12,22 +12,15 @@ class User(Base):
     name = Column(String, nullable=True)
     experience_level = Column(String, nullable=True)  # Beginner, Intermediate, Pro
     
-    # Encrypted CoinDCX Credentials
-    encrypted_coindcx_api_key = Column(Text, nullable=True)
-    encrypted_coindcx_api_secret = Column(Text, nullable=True)
-    
     # Margin Settings
     custom_margin_allocation = Column(Float, nullable=True)  # If None, use 20-25% of balance
     scan_interval_minutes = Column(Integer, default=5)  # 3, 5, 7, 10, 15, 30
     
-    # AI Settings
+    # AI Settings (provider preference only, keys stored client-side)
     ai_provider = Column(String, default="None")  # None, Gemini, Copilot, OpenAI
-    encrypted_ai_api_key = Column(Text, nullable=True)
     ai_enabled = Column(Boolean, default=False)
     
-    # Telegram Settings
-    telegram_api_id = Column(String, nullable=True)
-    telegram_api_hash = Column(Text, nullable=True)
+    # Telegram Settings (channels only, credentials stored client-side)
     telegram_channels = Column(JSON, nullable=True)  # List of channel IDs/usernames
     
     # Timestamps

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Header
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.api.deps import get_current_user, get_current_verified_user
@@ -18,13 +18,15 @@ router = APIRouter(prefix="/telegram", tags=["Telegram Signals"])
 async def start_telegram_listener(
     background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_verified_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    x_telegram_api_id: str = Header(None, alias="XTelegramApiId"),
+    x_telegram_api_hash: str = Header(None, alias="XTelegramApiHash"),
 ):
     """Start Telegram signal listener for user"""
-    if not current_user.telegram_api_id or not current_user.telegram_api_hash:
+    if not x_telegram_api_id or not x_telegram_api_hash:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Telegram credentials not configured"
+            detail="Telegram credentials not provided in headers"
         )
     
     if not current_user.telegram_channels:
@@ -36,11 +38,11 @@ async def start_telegram_listener(
     if current_user.id in active_listeners:
         return {"message": "Listener already running"}
     
-    # Create and start listener with user-specific session
+    # Create and start listener with user-specific session using ephemeral headers
     listener = TelegramSignalListener(
         current_user.id,
-        current_user.telegram_api_id,
-        current_user.telegram_api_hash,
+        x_telegram_api_id,
+        x_telegram_api_hash,
         current_user.telegram_channels
     )
     

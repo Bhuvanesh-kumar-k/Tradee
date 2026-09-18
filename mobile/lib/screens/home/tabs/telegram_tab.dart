@@ -39,7 +39,7 @@ class _TelegramTabState extends State<TelegramTab> {
       decoration: BoxDecoration(
         color: AppTheme.cardColor,
         borderRadius: BorderRadius.circular(12.r),
-        border: Border.all(color: AppTheme.primaryColor.withOpacity(0.3)),
+        border: Border.all(color: AppTheme.primaryColor.withValues(alpha: 0.3)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -56,7 +56,7 @@ class _TelegramTabState extends State<TelegramTab> {
               Container(
                 padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 4.h),
                 decoration: BoxDecoration(
-                  color: AppTheme.textSecondary.withOpacity(0.2),
+                  color: AppTheme.textSecondary.withValues(alpha: 0.2),
                   borderRadius: BorderRadius.circular(8.r),
                 ),
                 child: Text(
@@ -138,8 +138,8 @@ class _TelegramTabState extends State<TelegramTab> {
                   padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 4.h),
                   decoration: BoxDecoration(
                     color: signal['direction'] == 'LONG'
-                        ? AppTheme.successColor.withOpacity(0.2)
-                        : AppTheme.dangerColor.withOpacity(0.2),
+                        ? AppTheme.successColor.withValues(alpha: 0.2)
+                        : AppTheme.dangerColor.withValues(alpha: 0.2),
                     borderRadius: BorderRadius.circular(8.r),
                   ),
                   child: Text(
@@ -181,8 +181,8 @@ class _TelegramTabState extends State<TelegramTab> {
               padding: EdgeInsets.all(12.w),
               decoration: BoxDecoration(
                 color: isApproved
-                    ? AppTheme.successColor.withOpacity(0.1)
-                    : AppTheme.dangerColor.withOpacity(0.1),
+                    ? AppTheme.successColor.withValues(alpha: 0.1)
+                    : AppTheme.dangerColor.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(8.r),
               ),
               child: Column(

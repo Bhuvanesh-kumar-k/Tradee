@@ -2,8 +2,9 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:provider/provider.dart';
-import 'package:crypto_trading_app/providers/settings_provider.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:crypto_trading_app/providers/auth_provider.dart';
+import 'package:crypto_trading_app/providers/settings_provider.dart';
 import 'package:crypto_trading_app/utils/api_client.dart';
 import 'package:crypto_trading_app/utils/constants.dart';
 import 'package:crypto_trading_app/utils/theme.dart';
@@ -40,11 +41,14 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
   String _preferredCurrency = 'INR';
   List<String> _selectedTimeframes = ['1h', '4h', '8h', '1d'];
   final List<String> _availableTimeframes = ['1h', '2h', '4h', '8h', '1d'];
+  
+  // Secure storage for client-side keys
+  final FlutterSecureStorage _storage = const FlutterSecureStorage();
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 4, vsync: this);
+    _tabController = TabController(length: 5, vsync: this);
     _loadSettings();
   }
 
@@ -65,28 +69,45 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
     await context.read<SettingsProvider>().fetchSettings();
     final settings = context.read<SettingsProvider>().settings;
     
+    // Load keys from secure storage
+    final coindcxKey = await _storage.read(key: 'coindcx_api_key');
+    final coindcxSecret = await _storage.read(key: 'coindcx_api_secret');
+    final aiKey = await _storage.read(key: 'ai_api_key');
+    final aiProvider = await _storage.read(key: 'ai_provider');
+    final telegramApiId = await _storage.read(key: 'telegram_api_id');
+    final telegramApiHash = await _storage.read(key: 'telegram_api_hash');
+    
     // Populate controllers - use masked placeholders for existing keys
-    if (settings['has_coindcx_keys'] == true) {
+    if (coindcxKey != null && coindcxKey.isNotEmpty) {
       _coindcxApiKey.text = '••••••••••••••••';
+    } else {
+      _coindcxApiKey.text = '';
+    }
+    
+    if (coindcxSecret != null && coindcxSecret.isNotEmpty) {
       _coindcxApiSecret.text = '••••••••••••••••';
     } else {
-      _coindcxApiKey.text = settings['coindcx_api_key'] ?? '';
-      _coindcxApiSecret.text = settings['coindcx_api_secret'] ?? '';
+      _coindcxApiSecret.text = '';
     }
     
-    _customMargin.text = settings['custom_margin']?.toString() ?? '';
+    _customMargin.text = settings['custom_margin_allocation']?.toString() ?? '';
     _scanInterval = settings['scan_interval_minutes'] ?? 5;
-    _aiProvider = settings['ai_provider'] ?? 'None';
+    _aiProvider = aiProvider ?? settings['ai_provider'] ?? 'None';
     
-    if (settings['has_ai_key'] == true) {
+    if (aiKey != null && aiKey.isNotEmpty) {
       _aiKey.text = '••••••••••••••••';
     } else {
-      _aiKey.text = settings['ai_api_key'] ?? '';
+      _aiKey.text = '';
     }
     
-    _telegramApiId.text = settings['telegram_api_id'] ?? '';
-    _telegramApiHash.text = settings['telegram_api_hash'] ?? '';
+    _telegramApiId.text = telegramApiId ?? '';
+    _telegramApiHash.text = telegramApiHash ?? '';
     _telegramChannels.text = settings['telegram_channels']?.join(', ') ?? '';
+    
+    // Trading settings
+    _autoTradingEnabled = settings['auto_trading_enabled'] ?? false;
+    _preferredCurrency = settings['preferred_currency'] ?? 'INR';
+    _selectedTimeframes = List<String>.from(settings['trading_timeframes'] ?? ['1h', '4h', '8h', '1d']);
   }
 
   @override
@@ -115,11 +136,13 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
           // Tab Bar
           TabBar(
             controller: _tabController,
+            isScrollable: true,
             tabs: const [
               Tab(text: 'CoinDCX'),
               Tab(text: 'Margin'),
               Tab(text: 'AI'),
               Tab(text: 'Telegram'),
+              Tab(text: 'Trading'),
             ],
           ),
           
@@ -148,8 +171,8 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: [
-            AppTheme.primaryColor.withOpacity(0.2),
-            AppTheme.secondaryColor.withOpacity(0.2),
+            AppTheme.primaryColor.withValues(alpha: 0.2),
+            AppTheme.secondaryColor.withValues(alpha: 0.2),
           ],
         ),
         borderRadius: BorderRadius.circular(12.r),
@@ -245,7 +268,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
           Container(
             padding: EdgeInsets.all(12.w),
             decoration: BoxDecoration(
-              color: AppTheme.successColor.withOpacity(0.1),
+              color: AppTheme.successColor.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(8.r),
             ),
             child: Row(
@@ -264,8 +287,6 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
   }
 
   Widget _buildMarginTab(SettingsProvider provider) {
-    final settings = provider.settings;
-    
     return ListView(
       padding: EdgeInsets.all(16.w),
       children: [
@@ -385,7 +406,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
           Container(
             padding: EdgeInsets.all(12.w),
             decoration: BoxDecoration(
-              color: AppTheme.successColor.withOpacity(0.1),
+              color: AppTheme.successColor.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(8.r),
             ),
             child: Row(
@@ -464,7 +485,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
           Container(
             padding: EdgeInsets.all(12.w),
             decoration: BoxDecoration(
-              color: AppTheme.successColor.withOpacity(0.1),
+              color: AppTheme.successColor.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(8.r),
             ),
             child: Row(
@@ -506,7 +527,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
               _autoTradingEnabled = value;
             });
           },
-          activeColor: AppTheme.primaryColor,
+          activeThumbColor: AppTheme.primaryColor,
         ),
         SizedBox(height: 16.h),
         
@@ -517,7 +538,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
         ),
         SizedBox(height: 8.h),
         DropdownButtonFormField<String>(
-          value: _preferredCurrency,
+          initialValue: _preferredCurrency,
           decoration: InputDecoration(
             prefixIcon: const Icon(Icons.currency_exchange),
             suffixIcon: _buildHelpTooltip(
@@ -563,7 +584,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                   }
                 });
               },
-              selectedColor: AppTheme.primaryColor.withOpacity(0.3),
+              selectedColor: AppTheme.primaryColor.withValues(alpha: 0.3),
               checkmarkColor: AppTheme.primaryColor,
             );
           }).toList(),
@@ -583,7 +604,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
       decoration: BoxDecoration(
         color: AppTheme.cardColor,
         borderRadius: BorderRadius.circular(8.r),
-        border: Border.all(color: AppTheme.primaryColor.withOpacity(0.3)),
+        border: Border.all(color: AppTheme.primaryColor.withValues(alpha: 0.3)),
       ),
       child: Row(
         children: [
@@ -685,16 +706,12 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
   }
 
   Future<void> _saveCoinDCXSettings() async {
-    final provider = context.read<SettingsProvider>();
-    final success = await provider.updateSettings({
-      'coindcx': {
-        'api_key': _coindcxApiKey.text,
-        'api_secret': _coindcxApiSecret.text,
-      }
-    });
-    if (success && mounted) {
+    // Save directly to secure storage
+    await _storage.write(key: 'coindcx_api_key', value: _coindcxApiKey.text);
+    await _storage.write(key: 'coindcx_api_secret', value: _coindcxApiSecret.text);
+    if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('CoinDCX credentials saved')),
+        const SnackBar(content: Text('CoinDCX credentials saved securely on your device')),
       );
     }
   }
@@ -728,11 +745,16 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
       return;
     }
     
+    // Save to secure storage
+    await _storage.write(key: 'ai_api_key', value: _aiKey.text);
+    await _storage.write(key: 'ai_provider', value: _aiProvider!);
+    
+    // Verify with backend (key not stored there)
     final provider = context.read<SettingsProvider>();
     final success = await provider.verifyAiKey(_aiProvider!, _aiKey.text);
     if (success && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('AI key verified and saved')),
+        const SnackBar(content: Text('AI key verified and saved securely on your device')),
       );
     } else if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -742,23 +764,26 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
   }
 
   Future<void> _saveTelegramSettings() async {
-    final provider = context.read<SettingsProvider>();
+    // Save credentials to secure storage
+    await _storage.write(key: 'telegram_api_id', value: _telegramApiId.text);
+    await _storage.write(key: 'telegram_api_hash', value: _telegramApiHash.text);
+    
+    // Save channels to backend (non-sensitive data)
     final channelsList = _telegramChannels.text
         .split(',')
         .map((s) => s.trim())
         .where((s) => s.isNotEmpty)
         .toList();
     
+    final provider = context.read<SettingsProvider>();
     final success = await provider.updateSettings({
       'telegram': {
-        'api_id': _telegramApiId.text,
-        'api_hash': _telegramApiHash.text,
         'channels': channelsList,
       }
     });
     if (success && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Telegram settings saved')),
+        const SnackBar(content: Text('Telegram settings saved securely on your device')),
       );
     }
   }

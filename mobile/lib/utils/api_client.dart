@@ -9,9 +9,22 @@ class ApiClient {
   
   static Future<Map<String, String>> _getHeaders() async {
     final token = await _storage.read(key: 'access_token');
+    final coindcxKey = await _storage.read(key: 'coindcx_api_key');
+    final coindcxSecret = await _storage.read(key: 'coindcx_api_secret');
+    final aiKey = await _storage.read(key: 'ai_api_key');
+    final aiProvider = await _storage.read(key: 'ai_provider');
+    final telegramApiId = await _storage.read(key: 'telegram_api_id');
+    final telegramApiHash = await _storage.read(key: 'telegram_api_hash');
+
     return {
       'Content-Type': 'application/json',
       if (token != null) 'Authorization': 'Bearer $token',
+      if (coindcxKey != null) 'XCoinDCXKey': coindcxKey,
+      if (coindcxSecret != null) 'XCoinDCXSecret': coindcxSecret,
+      if (aiKey != null) 'XAIKey': aiKey,
+      if (aiProvider != null) 'XAIProvider': aiProvider,
+      if (telegramApiId != null) 'XTelegramApiId': telegramApiId,
+      if (telegramApiHash != null) 'XTelegramApiHash': telegramApiHash,
     };
   }
   

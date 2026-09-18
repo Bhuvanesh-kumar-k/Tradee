@@ -1,5 +1,66 @@
 D:\Devin\Crypto-App\mobile
 
+analysis_options.yaml
+---------------------
+
+# This file configures the analyzer, which statically analyzes Dart code to
+# check for errors, warnings, and lints.
+#
+# The issues identified by the analyzer are surfaced in the UI of Dart-enabled
+# IDEs (https://dart.dev/tools#ides-and-editors). The analyzer can also be
+# invoked from the command line by running `flutter analyze`.
+
+# The following line activates a set of recommended lints for Flutter apps,
+# packages, and plugins designed to encourage good coding practices.
+include: package:flutter_lints/flutter.yaml
+
+linter:
+  # The lint rules applied to this project can be customized in the
+  # section below to disable rules from the `package:flutter_lints/flutter.yaml`
+  # included above or to enable additional rules. A list of all available lints
+  # and their documentation is published at https://dart.dev/lints.
+  #
+  # Instead of disabling a lint rule for the entire project in the
+  # section below, it can also be suppressed for a single line of code
+  # or a specific dart file by using the `// ignore: name_of_lint` and
+  # `// ignore_for_file: name_of_lint` syntax on the line or in the file
+  # producing the lint.
+  rules:
+    # avoid_print: false  # Uncomment to disable the `avoid_print` rule
+    # prefer_single_quotes: true  # Uncomment to enable the `prefer_single_quotes` rule
+
+# Additional information about this file can be found at
+# https://dart.dev/guides/language/analysis-options
+
+
+crypto_trading.iml
+------------------
+
+<?xml version="1.0" encoding="UTF-8"?>
+<module type="JAVA_MODULE" version="4">
+  <component name="NewModuleRootManager" inherit-compiler-output="true">
+    <exclude-output />
+    <content url="file://$MODULE_DIR$">
+      <sourceFolder url="file://$MODULE_DIR$/lib" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/test" isTestSource="true" />
+      <excludeFolder url="file://$MODULE_DIR$/.dart_tool" />
+      <excludeFolder url="file://$MODULE_DIR$/.idea" />
+      <excludeFolder url="file://$MODULE_DIR$/build" />
+    </content>
+    <orderEntry type="sourceFolder" forTests="false" />
+    <orderEntry type="library" name="Dart SDK" level="project" />
+    <orderEntry type="library" name="Flutter Plugins" level="project" />
+    <orderEntry type="library" name="Dart Packages" level="project" />
+  </component>
+</module>
+
+
+pubspec.lock
+------------
+
+having lot of content
+
+
 pubspec.yaml
 ------------
 
@@ -19,27 +80,9 @@ dependencies:
   http: ^1.1.2
   flutter_secure_storage: ^9.0.0
   web_socket_channel: ^2.4.0
-  
-  # State Management
-  provider: ^6.1.1
-  
-  # Networking
-  http: ^1.1.2
-  web_socket_channel: ^2.4.0
-  
-  # Storage
   shared_preferences: ^2.2.2
-  
-  # Authentication
-  flutter_secure_storage: ^9.0.0
-  
-  # Icons
   flutter_svg: ^2.0.9
-  
-  # Charts
   fl_chart: ^0.66.0
-  
-  # Utilities
   intl: ^0.18.1
   logger: ^2.0.2+1
 
@@ -50,21 +93,6 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
-  
-  assets:
-    - assets/images/
-    - assets/icons/
-  
-  fonts:
-    - family: Inter
-      fonts:
-        - asset: assets/fonts/Inter-Regular.ttf
-        - asset: assets/fonts/Inter-Medium.ttf
-          weight: 500
-        - asset: assets/fonts/Inter-SemiBold.ttf
-          weight: 600
-        - asset: assets/fonts/Inter-Bold.ttf
-          weight: 700
 
 
 
@@ -110,7 +138,7 @@ class MyApp extends StatelessWidget {
         splitScreenMode: true,
         builder: (context, child) {
           return MaterialApp(
-            title: 'Crypto Trading Platform',
+            title: 'Tradee',
             debugShowCheckedModeBanner: false,
             theme: AppTheme.darkTheme,
             home: const AuthWrapper(),
@@ -127,18 +155,19 @@ class AuthWrapper extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final authProvider = context.watch<AuthProvider>();
-    !
-    if (authProvideLoginScreen();
+
+    if (!authProvider.isAuthenticated) {
+      return const LoginScreen();
     }
-    
-    if (!.uthProvider.termsAccepted) {
-      return const TermsAgreemestAuthenticated) {
-     
-     return const MainScreen();
-    }Ma
-    return const LoginScreen();
+
+    if (!authProvider.termsAccepted) {
+      return const TermsAgreementScreen();
+    }
+
+    return const MainScreen();
   }
 }
+
 
 
 D:\Devin\Crypto-App\mobile\lib\services
@@ -151,7 +180,6 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:crypto_trading_app/utils/constants.dart';
-import 'package:crypto_trading_app/utils/api_client.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 class WebSocketService extends ChangeNotifier {
@@ -294,6 +322,7 @@ class WebSocketService extends ChangeNotifier {
 
 
 
+
 D:\Devin\Crypto-App\mobile\lib\providers
 
 
@@ -318,6 +347,7 @@ class AuthProvider with ChangeNotifier {
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
   Map<String, dynamic>? get user => _user;
+  bool get termsAccepted => _user?['terms_accepted'] == true;
   
   AuthProvider() {
     _checkAuthStatus();
@@ -604,9 +634,9 @@ class ScannerProvider with ChangeNotifier {
 settings_provider.dart
 ----------------------
 
-
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:crypto_trading_app/utils/api_client.dart';
 import 'package:crypto_trading_app/utils/constants.dart';
 
@@ -614,6 +644,7 @@ class SettingsProvider with ChangeNotifier {
   Map<String, dynamic> _settings = {};
   bool _isLoading = false;
   String? _errorMessage;
+  final FlutterSecureStorage _storage = const FlutterSecureStorage();
   
   Map<String, dynamic> get settings => _settings;
   bool get isLoading => _isLoading;
@@ -647,6 +678,36 @@ class SettingsProvider with ChangeNotifier {
     notifyListeners();
     
     try {
+      // Save sensitive keys to secure storage
+      if (updates.containsKey('coindcx')) {
+        final coindcx = updates['coindcx'];
+        if (coindcx != null) {
+          await _storage.write(key: 'coindcx_api_key', value: coindcx['api_key']);
+          await _storage.write(key: 'coindcx_api_secret', value: coindcx['api_secret']);
+        }
+        updates.remove('coindcx'); // Don't send to backend
+      }
+      
+      if (updates.containsKey('ai')) {
+        final ai = updates['ai'];
+        if (ai != null && ai['api_key'] != null) {
+          await _storage.write(key: 'ai_api_key', value: ai['api_key']);
+        }
+        if (ai != null && ai['provider'] != null) {
+          await _storage.write(key: 'ai_provider', value: ai['provider']);
+        }
+        updates.remove('ai'); // Don't send full AI object to backend
+      }
+      
+      if (updates.containsKey('telegram')) {
+        final telegram = updates['telegram'];
+        if (telegram != null) {
+          await _storage.write(key: 'telegram_api_id', value: telegram['api_id']);
+          await _storage.write(key: 'telegram_api_hash', value: telegram['api_hash']);
+        }
+        updates.remove('telegram'); // Don't send to backend
+      }
+      
       final response = await ApiClient.put(
         Constants.settings,
         body: updates,
@@ -674,6 +735,23 @@ class SettingsProvider with ChangeNotifier {
   Future<bool> verifyAiKey(String provider, String apiKey) async {
     _isLoading = true;
     notifyListeners();
+  
+  // Secure storage methods for client-side key management
+  Future<String?> getSecureKey(String key) async {
+    return await _storage.read(key: key);
+  }
+  
+  Future<void> setSecureKey(String key, String value) async {
+    await _storage.write(key: key, value: value);
+  }
+  
+  Future<void> deleteSecureKey(String key) async {
+    await _storage.delete(key: key);
+  }
+  
+  Future<void> clearAllSecureKeys() async {
+    await _storage.deleteAll();
+  }
     
     try {
       final response = await ApiClient.post(
@@ -705,6 +783,7 @@ class SettingsProvider with ChangeNotifier {
     notifyListeners();
   }
 }
+
 
 
 trade_provider.dart
@@ -914,6 +993,8 @@ class TradeProvider with ChangeNotifier {
   }
 }
 
+
+
 D:\Devin\Crypto-App\mobile\lib\screens\legal
 
 terms_dialog.dart
@@ -1088,7 +1169,9 @@ By clicking "I Understand & Accept All Risks", you acknowledge that you have rea
                         ),
                         child: authProvider.isLoading
                             ? const SizedBox(
-                               (width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                               )
                             : const Text('I Understand & Accept All Risks'),
                       ),
@@ -1118,6 +1201,8 @@ By clicking "I Understand & Accept All Risks", you acknowledge that you have rea
     );
   }
 }
+
+
 
 
 
@@ -1217,7 +1302,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
                 SizedBox(height: 24.h),
                 Text(
-                  'Crypto Trading Platform',
+                  'Tradee',
                   style: Theme.of(context).textTheme.displaySmall,
                   textAlign: TextAlign.center,
                 ),
@@ -1303,6 +1388,7 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 }
+
 
 
 otp_screen.dart
@@ -1459,16 +1545,15 @@ class _OtpScreenState extends State<OtpScreen> {
 
 
 
+
 D:\Devin\Crypto-App\mobile\lib\screens\home
 
 main_screen.dart
 ----------------
 
 import 'package:flutter/material.dart';
-import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:provider/provider.dart';
 import 'package:crypto_trading_app/providers/auth_provider.dart';
-import 'package:crypto_trading_app/services/websocket_service.dart';
 import 'package:crypto_trading_app/screens/home/tabs/dashboard_tab.dart';
 import 'package:crypto_trading_app/screens/home/tabs/scanner_tab.dart';
 import 'package:crypto_trading_app/screens/home/tabs/single_coin_tab.dart';
@@ -1553,6 +1638,7 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 }
+
 
 
 D:\Devin\Crypto-App\mobile\lib\screens\home\tabs
@@ -1894,6 +1980,8 @@ class StatCard extends StatelessWidget {
 
 
 
+
+
 scanner_tab.dart
 ----------------
 
@@ -2172,6 +2260,8 @@ class _ScannerTabState extends State<ScannerTab> {
 }
 
 
+
+
 single_coin_tab.dart
 -------------------
 
@@ -2442,7 +2532,11 @@ class _SingleCoinTabState extends State<SingleCoinTab> {
 
 
 
+
+
+
 telegram_tab.dart
+-----------------
 
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
@@ -2702,6 +2796,7 @@ class _TelegramTabState extends State<TelegramTab> {
 
 
 
+
 D:\Devin\Crypto-App\mobile\lib\screens\settings
 
 settings_screen.dart
@@ -2711,8 +2806,9 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:provider/provider.dart';
-import 'package:crypto_trading_app/providers/settings_provider.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:crypto_trading_app/providers/auth_provider.dart';
+import 'package:crypto_trading_app/providers/settings_provider.dart';
 import 'package:crypto_trading_app/utils/api_client.dart';
 import 'package:crypto_trading_app/utils/constants.dart';
 import 'package:crypto_trading_app/utils/theme.dart';
@@ -2743,6 +2839,15 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
   final TextEditingController _telegramApiId = TextEditingController();
   final TextEditingController _telegramApiHash = TextEditingController();
   final TextEditingController _telegramChannels = TextEditingController();
+  
+  // Trading settings
+  bool _autoTradingEnabled = false;
+  String _preferredCurrency = 'INR';
+  List<String> _selectedTimeframes = ['1h', '4h', '8h', '1d'];
+  final List<String> _availableTimeframes = ['1h', '2h', '4h', '8h', '1d'];
+  
+  // Secure storage for client-side keys
+  final FlutterSecureStorage _storage = const FlutterSecureStorage();
 
   @override
   void initState() {
@@ -2768,16 +2873,45 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
     await context.read<SettingsProvider>().fetchSettings();
     final settings = context.read<SettingsProvider>().settings;
     
-    // Populate controllers
-    _coindcxApiKey.text = settings['coindcx_api_key'] ?? '';
-    _coindcxApiSecret.text = settings['coindcx_api_secret'] ?? '';
-    _customMargin.text = settings['custom_margin']?.toString() ?? '';
+    // Load keys from secure storage
+    final coindcxKey = await _storage.read(key: 'coindcx_api_key');
+    final coindcxSecret = await _storage.read(key: 'coindcx_api_secret');
+    final aiKey = await _storage.read(key: 'ai_api_key');
+    final aiProvider = await _storage.read(key: 'ai_provider');
+    final telegramApiId = await _storage.read(key: 'telegram_api_id');
+    final telegramApiHash = await _storage.read(key: 'telegram_api_hash');
+    
+    // Populate controllers - use masked placeholders for existing keys
+    if (coindcxKey != null && coindcxKey.isNotEmpty) {
+      _coindcxApiKey.text = '••••••••••••••••';
+    } else {
+      _coindcxApiKey.text = '';
+    }
+    
+    if (coindcxSecret != null && coindcxSecret.isNotEmpty) {
+      _coindcxApiSecret.text = '••••••••••••••••';
+    } else {
+      _coindcxApiSecret.text = '';
+    }
+    
+    _customMargin.text = settings['custom_margin_allocation']?.toString() ?? '';
     _scanInterval = settings['scan_interval_minutes'] ?? 5;
-    _aiProvider = settings['ai_provider'] ?? 'None';
-    _aiKey.text = settings['ai_api_key'] ?? '';
-    _telegramApiId.text = settings['telegram_api_id'] ?? '';
-    _telegramApiHash.text = settings['telegram_api_hash'] ?? '';
+    _aiProvider = aiProvider ?? settings['ai_provider'] ?? 'None';
+    
+    if (aiKey != null && aiKey.isNotEmpty) {
+      _aiKey.text = '••••••••••••••••';
+    } else {
+      _aiKey.text = '';
+    }
+    
+    _telegramApiId.text = telegramApiId ?? '';
+    _telegramApiHash.text = telegramApiHash ?? '';
     _telegramChannels.text = settings['telegram_channels']?.join(', ') ?? '';
+    
+    // Trading settings
+    _autoTradingEnabled = settings['auto_trading_enabled'] ?? false;
+    _preferredCurrency = settings['preferred_currency'] ?? 'INR';
+    _selectedTimeframes = List<String>.from(settings['trading_timeframes'] ?? ['1h', '4h', '8h', '1d']);
   }
 
   @override
@@ -2823,6 +2957,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                 _buildMarginTab(settingsProvider),
                 _buildAITab(settingsProvider),
                 _buildTelegramTab(settingsProvider),
+                _buildTradingTab(settingsProvider),
               ],
             ),
           ),
@@ -3140,6 +3275,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
             hintText: '@channel1, @channel2',
             suffixIcon: _buildHelpTooltip(
               'Telegram channels to monitor for signals. Use @username format or channel ID.',
+              serviceType: 'telegram',
             ),
           ),
         ),
@@ -3171,6 +3307,101 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
     );
   }
 
+  Widget _buildTradingTab(SettingsProvider provider) {
+    return ListView(
+      padding: EdgeInsets.all(16.w),
+      children: [
+        Text(
+          'Trading Settings',
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
+        SizedBox(height: 16.h),
+        _buildHelpText(
+          'Configure automated trading behavior, preferred currency, and execution timeframes.',
+        ),
+        SizedBox(height: 16.h),
+        
+        // Auto-Trading Toggle
+        SwitchListTile(
+          title: const Text('Auto-Trading Enabled'),
+          subtitle: const Text('Allow system to automatically execute trades'),
+          value: _autoTradingEnabled,
+          onChanged: (value) {
+            setState(() {
+              _autoTradingEnabled = value;
+            });
+          },
+          activeColor: AppTheme.primaryColor,
+        ),
+        SizedBox(height: 16.h),
+        
+        // Currency Selector
+        Text(
+          'Preferred Currency',
+          style: Theme.of(context).textTheme.bodyMedium,
+        ),
+        SizedBox(height: 8.h),
+        DropdownButtonFormField<String>(
+          value: _preferredCurrency,
+          decoration: InputDecoration(
+            prefixIcon: const Icon(Icons.currency_exchange),
+            suffixIcon: _buildHelpTooltip(
+              'Choose your preferred currency for trading calculations. INR will be converted to USDT at current rates.',
+            ),
+          ),
+          items: const [
+            DropdownMenuItem(value: 'INR', child: Text('INR (Indian Rupee)')),
+            DropdownMenuItem(value: 'USDT', child: Text('USDT (Tether)')),
+          ],
+          onChanged: (value) {
+            setState(() {
+              _preferredCurrency = value ?? 'INR';
+            });
+          },
+        ),
+        SizedBox(height: 16.h),
+        
+        // Timeframe Selection
+        Text(
+          'Execution Timeframes ("Take Trade In")',
+          style: Theme.of(context).textTheme.bodyMedium,
+        ),
+        SizedBox(height: 8.h),
+        _buildHelpText(
+          'Select which timeframes the scanner should use for trade execution. At least one timeframe must be selected.',
+        ),
+        SizedBox(height: 8.h),
+        Wrap(
+          spacing: 8.w,
+          runSpacing: 8.h,
+          children: _availableTimeframes.map((timeframe) {
+            final isSelected = _selectedTimeframes.contains(timeframe);
+            return FilterChip(
+              label: Text(timeframe),
+              selected: isSelected,
+              onSelected: (selected) {
+                setState(() {
+                  if (selected) {
+                    _selectedTimeframes.add(timeframe);
+                  } else {
+                    _selectedTimeframes.remove(timeframe);
+                  }
+                });
+              },
+              selectedColor: AppTheme.primaryColor.withOpacity(0.3),
+              checkmarkColor: AppTheme.primaryColor,
+            );
+          }).toList(),
+        ),
+        SizedBox(height: 16.h),
+        ElevatedButton(
+          onPressed: () => _saveTradingSettings(),
+          child: const Text('Save Trading Settings'),
+        ),
+      ],
+    );
+  }
+
   Widget _buildHelpText(String text) {
     return Container(
       padding: EdgeInsets.all(12.w),
@@ -3196,48 +3427,95 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
     );
   }
 
-  Widget _buildHelpTooltip(String message) {
+  Widget _buildHelpTooltip(String message, {String? serviceType}) {
     return IconButton(
       icon: Icon(Icons.help_outline, color: AppTheme.textSecondary, size: 20.sp),
-      onPressed: () {
-        showDialog(
-          context: context,
-          builder: (context) => AlertDialog(
-            backgroundColor: AppTheme.cardColor,
-            title: Row(
-              children: [
-                Icon(Icons.info_outline, color: AppTheme.primaryColor),
-                SizedBox(width: 8.w),
-                const Text('Help'),
-              ],
-            ),
-            content: Text(
-              message,
-              style: Theme.of(context).textTheme.bodyMedium,
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Got it'),
-              ),
-            ],
-          ),
-        );
+      onPressed: () async {
+        if (serviceType != null) {
+          await _showDynamicKeyGuide(serviceType);
+        } else {
+          _showStaticHelp(message);
+        }
       },
     );
   }
 
-  Future<void> _saveCoinDCXSettings() async {
-    final provider = context.read<SettingsProvider>();
-    final success = await provider.updateSettings({
-      'coindcx': {
-        'api_key': _coindcxApiKey.text,
-        'api_secret': _coindcxApiSecret.text,
+  void _showStaticHelp(String message) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: AppTheme.cardColor,
+        title: Row(
+          children: [
+            Icon(Icons.info_outline, color: AppTheme.primaryColor),
+            SizedBox(width: 8.w),
+            const Text('Help'),
+          ],
+        ),
+        content: Text(
+          message,
+          style: Theme.of(context).textTheme.bodyMedium,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Got it'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showDynamicKeyGuide(String serviceType) async {
+    try {
+      final response = await ApiClient.get(Constants.keyGuides);
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final guides = data['guides'] as Map<String, dynamic>?;
+        final guideText = guides?[serviceType] ?? 'Guide not available';
+        
+        if (mounted) {
+          showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              backgroundColor: AppTheme.cardColor,
+              title: Row(
+                children: [
+                  Icon(Icons.info_outline, color: AppTheme.primaryColor),
+                  SizedBox(width: 8.w),
+                  Text('${serviceType.toUpperCase()} Setup Guide'),
+                ],
+              ),
+              content: SingleChildScrollView(
+                child: Text(
+                  guideText,
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Got it'),
+                ),
+              ],
+            ),
+          );
+        }
+      } else {
+        _showStaticHelp('Unable to fetch guide. Please check your connection.');
       }
-    });
-    if (success && mounted) {
+    } catch (e) {
+      _showStaticHelp('Error loading guide: $e');
+    }
+  }
+
+  Future<void> _saveCoinDCXSettings() async {
+    // Save directly to secure storage
+    await _storage.write(key: 'coindcx_api_key', value: _coindcxApiKey.text);
+    await _storage.write(key: 'coindcx_api_secret', value: _coindcxApiSecret.text);
+    if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('CoinDCX credentials saved')),
+        const SnackBar(content: Text('CoinDCX credentials saved securely on your device')),
       );
     }
   }
@@ -3271,11 +3549,16 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
       return;
     }
     
+    // Save to secure storage
+    await _storage.write(key: 'ai_api_key', value: _aiKey.text);
+    await _storage.write(key: 'ai_provider', value: _aiProvider!);
+    
+    // Verify with backend (key not stored there)
     final provider = context.read<SettingsProvider>();
     final success = await provider.verifyAiKey(_aiProvider!, _aiKey.text);
     if (success && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('AI key verified and saved')),
+        const SnackBar(content: Text('AI key verified and saved securely on your device')),
       );
     } else if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -3285,23 +3568,26 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
   }
 
   Future<void> _saveTelegramSettings() async {
-    final provider = context.read<SettingsProvider>();
+    // Save credentials to secure storage
+    await _storage.write(key: 'telegram_api_id', value: _telegramApiId.text);
+    await _storage.write(key: 'telegram_api_hash', value: _telegramApiHash.text);
+    
+    // Save channels to backend (non-sensitive data)
     final channelsList = _telegramChannels.text
         .split(',')
         .map((s) => s.trim())
         .where((s) => s.isNotEmpty)
         .toList();
     
+    final provider = context.read<SettingsProvider>();
     final success = await provider.updateSettings({
       'telegram': {
-        'api_id': _telegramApiId.text,
-        'api_hash': _telegramApiHash.text,
         'channels': channelsList,
       }
     });
     if (success && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Telegram settings saved')),
+        const SnackBar(content: Text('Telegram settings saved securely on your device')),
       );
     }
   }
@@ -3426,6 +3712,29 @@ INDICATORS USED
 • Volume SMA - Volume confirmation
     ''';
   }
+
+  Future<void> _saveTradingSettings() async {
+    if (_selectedTimeframes.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please select at least one timeframe')),
+      );
+      return;
+    }
+    
+    final provider = context.read<SettingsProvider>();
+    final success = await provider.updateSettings({
+      'trading': {
+        'auto_trading_enabled': _autoTradingEnabled,
+        'preferred_currency': _preferredCurrency,
+        'trading_timeframes': _selectedTimeframes,
+      }
+    });
+    if (success && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Trading settings saved')),
+      );
+    }
+  }
 }
 
 
@@ -3448,9 +3757,22 @@ class ApiClient {
   
   static Future<Map<String, String>> _getHeaders() async {
     final token = await _storage.read(key: 'access_token');
+    final coindcxKey = await _storage.read(key: 'coindcx_api_key');
+    final coindcxSecret = await _storage.read(key: 'coindcx_api_secret');
+    final aiKey = await _storage.read(key: 'ai_api_key');
+    final aiProvider = await _storage.read(key: 'ai_provider');
+    final telegramApiId = await _storage.read(key: 'telegram_api_id');
+    final telegramApiHash = await _storage.read(key: 'telegram_api_hash');
+
     return {
       'Content-Type': 'application/json',
       if (token != null) 'Authorization': 'Bearer $token',
+      if (coindcxKey != null) 'XCoinDCXKey': coindcxKey,
+      if (coindcxSecret != null) 'XCoinDCXSecret': coindcxSecret,
+      if (aiKey != null) 'XAIKey': aiKey,
+      if (aiProvider != null) 'XAIProvider': aiProvider,
+      if (telegramApiId != null) 'XTelegramApiId': telegramApiId,
+      if (telegramApiHash != null) 'XTelegramApiHash': telegramApiHash,
     };
   }
   
@@ -3490,15 +3812,18 @@ constants.dart
 --------------
 
 class Constants {
-  // Use 10.0.2.2 for Android Emulator, or your LAN IP for physical device
+  // Cloud Host Configuration
+  // For cloud deployment, replace with your cloud server URL
+  // Example: static const String apiBaseUrl = 'https://your-cloud-server.com/api/v1';
+  // For local development: use 10.0.2.2 for Android Emulator, or your LAN IP for physical device
   static const String apiBaseUrl = 'http://10.0.2.2:8000/api/v1';
   static const String wsUrl = 'ws://10.0.2.2:8000/api/v1/ws/live-updates';
 
   // System endpoints
   static const String terms = '/system/terms';
   static const String acceptTerms = '/system/accept-terms';
-  static const String about = '/system/about';
-  static const String keyGuides = '/system/key-guides';
+  static const String about = '$apiBaseUrl/system/about';
+  static const String keyGuides = '$apiBaseUrl/system/key-guides';
 
   // Other endpoints
   static const String requestOtp = '/auth/request-otp';
@@ -3506,6 +3831,7 @@ class Constants {
   static const String login = '/auth/login';
   static const String settings = '/settings/me';
   static const String verifyAiKey = '/settings/verify-ai-key';
+  static const String conversionRate = '$apiBaseUrl/system/conversion-rate';
   static const String scannerStatus = '/scanner/status';
   static const String checkCoin = '/scanner/check-coin';
   static const String scannerLogs = '/scanner/logs';
@@ -3610,8 +3936,6 @@ class AppTheme {
     ),
   );
 }
-
-
 
 
 

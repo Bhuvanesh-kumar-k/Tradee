@@ -70,8 +70,8 @@ class _ScannerTabState extends State<ScannerTab> {
       padding: EdgeInsets.all(16.w),
       decoration: BoxDecoration(
         color: isFrozen 
-            ? AppTheme.warningColor.withOpacity(0.2)
-            : AppTheme.successColor.withOpacity(0.2),
+            ? AppTheme.warningColor.withValues(alpha: 0.2)
+            : AppTheme.successColor.withValues(alpha: 0.2),
         borderRadius: BorderRadius.circular(12.r),
         border: Border.all(
           color: isFrozen ? AppTheme.warningColor : AppTheme.successColor,
@@ -129,8 +129,6 @@ class _ScannerTabState extends State<ScannerTab> {
   }
 
   Widget _buildLogCard(ScannerLog log) {
-    final hasSignal = log.signalDetected != null && log.signalDetected != 'NONE';
-    
     return Card(
       margin: EdgeInsets.only(bottom: 12.h),
       child: Padding(
@@ -206,7 +204,7 @@ class _ScannerTabState extends State<ScannerTab> {
     return Container(
       padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 4.h),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.2),
+        color: color.withValues(alpha: 0.2),
         borderRadius: BorderRadius.circular(8.r),
       ),
       child: Text(

@@ -18,7 +18,6 @@ class AppTheme {
     colorScheme: const ColorScheme.dark(
       primary: primaryColor,
       secondary: secondaryColor,
-      background: backgroundColor,
       surface: cardColor,
       error: dangerColor,
     ),

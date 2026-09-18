@@ -118,8 +118,8 @@ class _SingleCoinTabState extends State<SingleCoinTab> {
                     padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 6.h),
                     decoration: BoxDecoration(
                       color: overallSignal == 'LONG'
-                          ? AppTheme.successColor.withOpacity(0.2)
-                          : AppTheme.dangerColor.withOpacity(0.2),
+                          ? AppTheme.successColor.withValues(alpha: 0.2)
+                          : AppTheme.dangerColor.withValues(alpha: 0.2),
                       borderRadius: BorderRadius.circular(8.r),
                     ),
                     child: Text(
@@ -196,8 +196,8 @@ class _SingleCoinTabState extends State<SingleCoinTab> {
                 padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 4.h),
                 decoration: BoxDecoration(
                   color: direction == 'LONG'
-                      ? AppTheme.successColor.withOpacity(0.2)
-                      : AppTheme.dangerColor.withOpacity(0.2),
+                      ? AppTheme.successColor.withValues(alpha: 0.2)
+                      : AppTheme.dangerColor.withValues(alpha: 0.2),
                   borderRadius: BorderRadius.circular(8.r),
                 ),
                 child: Text(

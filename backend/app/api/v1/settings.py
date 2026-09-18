@@ -5,7 +5,6 @@ from app.core.database import get_db
 from app.api.deps import get_current_user
 from app.schemas.settings import UserSettingsUpdate, AIKeyVerify
 from app.models.user import User
-from app.core.encryption import encrypt_data, decrypt_data
 from app.services.ai_service import AIService
 import httpx
 
@@ -38,24 +37,16 @@ async def update_user_settings(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Update user settings"""
-    if settings_update.coindcx:
-        current_user.encrypted_coindcx_api_key = encrypt_data(settings_update.coindcx.api_key)
-        current_user.encrypted_coindcx_api_secret = encrypt_data(settings_update.coindcx.api_secret)
-    
+    """Update user settings (keys stored client-side, not in database)"""
     if settings_update.margin:
         current_user.custom_margin_allocation = settings_update.margin.custom_margin_allocation
         current_user.scan_interval_minutes = settings_update.margin.scan_interval_minutes
     
     if settings_update.ai:
         current_user.ai_provider = settings_update.ai.provider
-        if settings_update.ai.api_key:
-            current_user.encrypted_ai_api_key = encrypt_data(settings_update.ai.api_key)
         current_user.ai_enabled = False  # Require verification
     
     if settings_update.telegram:
-        current_user.telegram_api_id = settings_update.telegram.api_id
-        current_user.telegram_api_hash = settings_update.telegram.api_hash
         current_user.telegram_channels = settings_update.telegram.channels
     
     if settings_update.trading:

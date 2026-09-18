@@ -79,12 +79,12 @@ class _DashboardTabState extends State<DashboardTab> {
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: [
-            AppTheme.primaryColor.withOpacity(0.2),
-            AppTheme.secondaryColor.withOpacity(0.2),
+            AppTheme.primaryColor.withValues(alpha: 0.2),
+            AppTheme.secondaryColor.withValues(alpha: 0.2),
           ],
         ),
         borderRadius: BorderRadius.circular(16.r),
-        border: Border.all(color: AppTheme.primaryColor.withOpacity(0.3)),
+        border: Border.all(color: AppTheme.primaryColor.withValues(alpha: 0.3)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -183,8 +183,8 @@ class _DashboardTabState extends State<DashboardTab> {
                   padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 4.h),
                   decoration: BoxDecoration(
                     color: trade.direction == 'LONG'
-                        ? AppTheme.successColor.withOpacity(0.2)
-                        : AppTheme.dangerColor.withOpacity(0.2),
+                        ? AppTheme.successColor.withValues(alpha: 0.2)
+                        : AppTheme.dangerColor.withValues(alpha: 0.2),
                     borderRadius: BorderRadius.circular(8.r),
                   ),
                   child: Text(

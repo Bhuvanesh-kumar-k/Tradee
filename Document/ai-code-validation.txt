@@ -1,0 +1,3688 @@
+D:\Devin\Crypto-App\backend
+
+
+main.py
+-------
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from contextlib import asynccontextmanager
+import uvicorn
+
+from app.core.config import settings
+from app.core.database import init_db
+from app.api.v1.api import api_router
+from app.services.scheduler import background_scheduler, initialize_scheduler
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    await init_db()
+    initialize_scheduler()
+    background_scheduler.start()
+    yield
+    # Shutdown
+    background_scheduler.shutdown()
+
+
+app = FastAPI(
+    title="Crypto Trading Platform API",
+    description="Production-grade multi-user crypto futures trading platform",
+    version="1.0.0",
+    lifespan=lifespan
+)
+
+# CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Configure appropriately for production
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Include API routes
+app.include_router(api_router, prefix="/api/v1")
+
+
+@app.get("/health")
+async def health_check():
+    return {
+        "status": "healthy",
+        "service": "crypto-trading-platform",
+        "scheduler_running": background_scheduler.is_running
+    }
+
+
+if __name__ == "__main__":
+    uvicorn.run(
+        "main:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=True
+    )
+
+
+
+
+Requirements.txt
+----------------
+
+
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+sqlalchemy==2.0.23
+sqlmodel==0.0.14
+pyjwt==2.8.0
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+python-multipart==0.0.6
+pydantic[email]==2.5.0
+pydantic-settings==2.1.0
+python-dotenv==1.0.0
+apscheduler==3.10.4
+websockets==12.0
+httpx==0.25.2
+telethon==1.33.1
+pandas==2.1.3
+numpy==1.26.2
+requests==2.31.0
+cryptography==41.0.7
+aiosmtplib==3.0.1
+email-validator==2.1.0
+
+
+
+D:\Devin\Crypto-App\backend\app
+
+__init__.py
+
+# Crypto Trading Platform Backend
+
+D:\Devin\Crypto-App\backend\app\api
+
+deps.py
+-------
+
+
+from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+
+from app.core.database import get_db
+from app.core.security import decode_access_token
+from app.models.user import User
+
+security = HTTPBearer()
+
+
+async def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: AsyncSession = Depends(get_db)
+) -> User:
+    """Dependency to get current authenticated user"""
+    token = credentials.credentials
+    payload = decode_access_token(token)
+    
+    if payload is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication credentials"
+        )
+    
+    user_id = payload.get("sub")
+    if user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication credentials"
+        )
+    
+    result = await db.execute(
+        select(User).where(User.id == int(user_id))
+    )
+    user = result.scalar_one_or_none()
+    
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found"
+        )
+    
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User account is inactive"
+        )
+    
+    return user
+
+
+async def get_current_verified_user(
+    current_user: User = Depends(get_current_user)
+) -> User:
+    """Dependency ensuring the user has accepted legal disclaimers and terms of service"""
+    if not getattr(current_user, "terms_accepted", False):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="LEGAL_TERMS_NOT_ACCEPTED: You must accept terms and conditions before accessing trading features."
+        )
+    return current_user
+
+
+
+__init__.py 
+-----------
+
+# API Module
+
+
+D:\Devin\Crypto-App\backend\app\api\v1
+
+api.py
+------
+
+from fastapi import APIRouter
+from app.api.v1 import auth, settings, scanner, trades, telegram, system
+
+api_router = APIRouter()
+
+api_router.include_router(auth.router)
+api_router.include_router(settings.router)
+api_router.include_router(scanner.router)
+api_router.include_router(trades.router)
+api_router.include_router(telegram.router)
+api_router.include_router(system.router)
+
+
+auth.py
+-------
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.core.database import get_db
+from app.schemas.user import OTPRequest, OTPVerify, UserLogin, TokenResponse, UserResponse
+from app.services.auth_service import create_otp, verify_otp_and_register, login_user
+from app.models.user import User
+
+router = APIRouter(prefix="/auth", tags=["Authentication"])
+
+
+@router.post("/request-otp", status_code=status.HTTP_200_OK)
+async def request_otp(
+    request: OTPRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """Request OTP for email verification"""
+    success = await create_otp(db, request.email)
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to send OTP email"
+        )
+    return {"message": "OTP sent successfully"}
+
+
+@router.post("/verify-otp", response_model=TokenResponse)
+async def verify_otp(
+    request: OTPVerify,
+    db: AsyncSession = Depends(get_db)
+):
+    """Verify OTP and register new user"""
+    user = await verify_otp_and_register(
+        db,
+        request.email,
+        request.otp_code,
+        request.password,
+        request.name,
+        request.experience_level
+    )
+    
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired OTP, or user already exists"
+        )
+    
+    from app.core.security import create_access_token
+    token_data = {"sub": str(user.id), "email": user.email}
+    access_token = create_access_token(token_data)
+    
+    return TokenResponse(
+        access_token=access_token,
+        user=UserResponse.model_validate(user)
+    )
+
+
+@router.post("/login", response_model=TokenResponse)
+async def login(
+    request: UserLogin,
+    db: AsyncSession = Depends(get_db)
+):
+    """Login with email and password"""
+    result = await login_user(db, request.email, request.password)
+    
+    if not result:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid email or password"
+        )
+    
+    return TokenResponse(
+        access_token=result["access_token"],
+        user=UserResponse.model_validate(result["user"])
+    )
+
+
+
+
+scanner.py
+----------
+
+
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.core.database import get_db
+from app.api.deps import get_current_user
+from app.models.user import User
+from app.schemas.scanner import SingleCoinCheckRequest, CoinAnalysisResult, ScannerLogResponse
+from app.core.strategy import evaluate_pair, evaluate_all_markets
+from app.core.market_data import get_market_trend
+from app.core.news_calendar import circuit_breaker
+from app.models.scanner_log import ScannerLog
+from app.services.coindcx_executor import get_user_executor
+from sqlalchemy import select
+from datetime import datetime
+
+router = APIRouter(prefix="/scanner", tags=["Market Scanner"])
+
+
+@router.get("/status")
+async def get_scanner_status(
+    current_user: User = Depends(get_current_user)
+):
+    """Get current scanner status including news circuit breaker"""
+    frozen_status = circuit_breaker.get_frozen_status_message()
+    upcoming_events = circuit_breaker.get_upcoming_events(hours=24)
+    
+    return {
+        "status": "frozen" if frozen_status else "active",
+        "message": frozen_status or "Scanner running normally",
+        "upcoming_events": upcoming_events,
+        "scan_interval_minutes": current_user.scan_interval_minutes
+    }
+
+
+@router.post("/check-coin", response_model=CoinAnalysisResult)
+async def check_single_coin(
+    request: SingleCoinCheckRequest,
+    current_user: User = Depends(get_current_verified_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Run on-demand analysis for a single coin"""
+    # Check circuit breaker
+    frozen_status = circuit_breaker.get_frozen_status_message()
+    if frozen_status:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Scanner frozen: {frozen_status}"
+        )
+    
+    # Normalize coin pair
+    coin_pair = request.coin_pair.upper()
+    if not coin_pair.startswith("B-"):
+        coin_pair = f"B-{coin_pair}"
+    if not coin_pair.endswith("_USDT"):
+        coin_pair = f"{coin_pair}_USDT"
+    
+    # Get BTC trend
+    btc_trend = await get_market_trend("B-BTC_USDT", "1d")
+    
+    # Determine capital allocation
+    capital = current_user.custom_margin_allocation
+    if capital is None:
+        # Fetch live balance from CoinDCX
+        executor = await get_user_executor(current_user)
+        if executor:
+            balance_data = await executor.get_futures_balance()
+            if balance_data and isinstance(balance_data, dict):
+                # Extract balance from response (adjust based on actual API response structure)
+                total_balance = balance_data.get("balance", 0) or balance_data.get("total_balance", 0) or balance_data.get("usdt_balance", 0)
+                if total_balance > 0:
+                    capital = total_balance * 0.225  # 22.5% average of 20-25%
+        
+        # Fallback if balance fetch failed or no keys
+        if capital is None or capital < 20:
+            capital = 20.0  # Minimum fallback
+    
+    # Evaluate the coin with 1-hour timeframe enabled
+    trades = await evaluate_pair(
+        coin_pair,
+        capital=capital,
+        btc_trend=btc_trend,
+        user_timeframes=["1h", "4h", "8h", "1d"]
+    )
+    
+    if not trades:
+        return CoinAnalysisResult(
+            coin_pair=coin_pair,
+            timeframes=[],
+            overall_signal="NONE",
+            best_timeframe=None,
+            entry_price=None,
+            take_profit=None,
+            stop_loss=None,
+            leverage=None,
+            expected_roi=None
+        )
+    
+    best_trade = max(trades, key=lambda x: x["roi_num"])
+    
+    # Log the scan
+    log = ScannerLog(
+        user_id=current_user.id,
+        coin_pair=coin_pair,
+        timeframe=best_trade["Timeframe"],
+        trend_status="BULLISH" if best_trade["Direction"] == "LONG" else "BEARISH",
+        signal_detected=best_trade["Direction"],
+        checklist_passed=best_trade.get("checklist"),
+        **best_trade.get("indicator_values", {})
+    )
+    db.add(log)
+    await db.commit()
+    
+    return CoinAnalysisResult(
+        coin_pair=coin_pair,
+        timeframes=[
+            {
+                "timeframe": t["Timeframe"],
+                "direction": t["Direction"],
+                "roi": t["roi_num"],
+                "entry": t["Entry Price"],
+                "tp": t["Take Profit"],
+                "sl": t["Stop Loss"]
+            }
+            for t in trades
+        ],
+        overall_signal=best_trade["Direction"],
+        best_timeframe=best_trade["Timeframe"],
+        entry_price=best_trade["Entry Price"],
+        take_profit=best_trade["Take Profit"],
+        stop_loss=best_trade["Stop Loss"],
+        leverage=best_trade["Leverage"],
+        expected_roi=best_trade["roi_num"]
+    )
+
+
+@router.get("/logs", response_model=list[ScannerLogResponse])
+async def get_scanner_logs(
+    limit: int = 50,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get recent scanner logs"""
+    result = await db.execute(
+        select(ScannerLog)
+        .where(ScannerLog.user_id == current_user.id)
+        .order_by(ScannerLog.scan_time.desc())
+        .limit(limit)
+    )
+    logs = result.scalars().all()
+    return [ScannerLogResponse.model_validate(log) for log in logs]
+
+
+
+
+settings.py
+-----------
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from app.core.database import get_db
+from app.api.deps import get_current_user
+from app.schemas.settings import UserSettingsUpdate, AIKeyVerify
+from app.models.user import User
+from app.core.encryption import encrypt_data, decrypt_data
+from app.services.ai_service import AIService
+import httpx
+
+router = APIRouter(prefix="/settings", tags=["User Settings"])
+
+
+@router.get("/me")
+async def get_user_settings(
+    current_user: User = Depends(get_current_user)
+):
+    """Get current user settings (excluding sensitive data)"""
+    return {
+        "email": current_user.email,
+        "name": current_user.name,
+        "experience_level": current_user.experience_level,
+        "custom_margin_allocation": current_user.custom_margin_allocation,
+        "scan_interval_minutes": current_user.scan_interval_minutes,
+        "ai_provider": current_user.ai_provider,
+        "ai_enabled": current_user.ai_enabled,
+        "telegram_api_id": current_user.telegram_api_id,
+        "telegram_channels": current_user.telegram_channels,
+        "has_coindcx_keys": bool(current_user.encrypted_coindcx_api_key),
+        "has_ai_key": bool(current_user.encrypted_ai_api_key)
+    }
+
+
+@router.put("/me")
+async def update_user_settings(
+    settings_update: UserSettingsUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Update user settings"""
+    if settings_update.coindcx:
+        current_user.encrypted_coindcx_api_key = encrypt_data(settings_update.coindcx.api_key)
+        current_user.encrypted_coindcx_api_secret = encrypt_data(settings_update.coindcx.api_secret)
+    
+    if settings_update.margin:
+        current_user.custom_margin_allocation = settings_update.margin.custom_margin_allocation
+        current_user.scan_interval_minutes = settings_update.margin.scan_interval_minutes
+    
+    if settings_update.ai:
+        current_user.ai_provider = settings_update.ai.provider
+        if settings_update.ai.api_key:
+            current_user.encrypted_ai_api_key = encrypt_data(settings_update.ai.api_key)
+        current_user.ai_enabled = False  # Require verification
+    
+    if settings_update.telegram:
+        current_user.telegram_api_id = settings_update.telegram.api_id
+        current_user.telegram_api_hash = settings_update.telegram.api_hash
+        current_user.telegram_channels = settings_update.telegram.channels
+    
+    await db.commit()
+    await db.refresh(current_user)
+    
+    return {"message": "Settings updated successfully"}
+
+
+@router.post("/verify-ai-key")
+async def verify_ai_key(
+    verify_request: AIKeyVerify,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Verify AI API key with a test prompt using structured JSON"""
+    try:
+        # Test with a simple signal analysis to verify the key works
+        test_signal = {
+            "coin_pair": "BTC_USDT",
+            "direction": "LONG",
+            "leverage": "10x",
+            "entry_zone": "67000",
+            "take_profit_targets": ["69000"],
+            "stop_loss": "66000"
+        }
+        
+        test_market_context = {
+            "btc_trend": "BULLISH",
+            "coin_1d_trend": "BULLISH",
+            "coin_1h_trend": "BULLISH",
+            "rsi": 55,
+            "macd_hist": 0.5,
+            "adx": 25,
+            "ema50": 66500,
+            "ema200": 65000
+        }
+        
+        result = await AIService.analyze_signal(
+            verify_request.provider,
+            verify_request.api_key,
+            test_signal,
+            test_market_context
+        )
+        
+        # Check if the result is valid
+        if result.get("verdict") in ["APPROVE", "REJECT"] and result.get("confidence", 0) > 0:
+            current_user.ai_provider = verify_request.provider
+            current_user.encrypted_ai_api_key = encrypt_data(verify_request.api_key)
+            current_user.ai_enabled = True
+            await db.commit()
+            return {
+                "message": "AI key verified successfully",
+                "provider": verify_request.provider,
+                "test_result": result
+            }
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"AI key verification failed: {result.get('reason', 'Unknown error')}"
+            )
+    
+    except httpx.TimeoutException:
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail="AI API timeout"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"AI verification failed: {str(e)}"
+        )
+
+
+system.py
+---------
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.ext.asyncio import AsyncSession
+from datetime import datetime
+from app.core.database import get_db
+from app.api.deps import get_current_user
+from app.models.user import User
+from app.schemas.user import AcceptTermsRequest
+
+router = APIRouter(prefix="/system", tags=["System & Legal"])
+
+@router.get("/terms")
+async def get_legal_terms():
+    """Returns statutory disclaimers under Indian Law for Virtual Digital Assets (VDAs)"""
+    return {
+        "title": "Mandatory Risk Disclosure, Disclaimer & Terms of Use",
+        "jurisdiction": "India (Virtual Digital Assets / VDA Framework)",
+        "effective_date": "2026-09-01",
+        "warning_banner": "⚠️ HIGH-RISK WARNING: Cryptos and Virtual Digital Assets (VDAs) are highly volatile, unregulated in India, and carry significant capital loss risks.",
+        "terms": [
+            {
+                "section": "1. Nature of the Software",
+                "content": "This application is strictly a self-hosted, technical algorithmic tool and computational utility. It provides automated execution based solely on user-provided parameters, exchange API keys, and pre-set technical indicator logic. It is NOT an asset management platform, mutual fund, collective investment scheme, or bank."
+            },
+            {
+                "section": "2. No Financial Advice & Non-SEBI Registered Entity",
+                "content": "Neither the developer, publisher, nor platform operators are registered Investment Advisers (IA) or Research Analysts (RA) under the Securities and Exchange Board of India (SEBI) Act, 1992, or licensed financial entities under the Reserve Bank of India (RBI). No content, automated signal, or AI analysis constitutes investment, trading, or financial advice."
+            },
+            {
+                "section": "3. Absolute Absence of Profit Guarantee",
+                "content": "Algorithmic execution carries substantial risk. The user acknowledges that cryptocurrency futures involve high leverage where entire capital balances can be liquidated within seconds due to slippage, spread widening, or exchange API downtime. There is NO GUARANTEE of capital preservation, return on investment (ROI), or win rate."
+            },
+            {
+                "section": "4. Sole User Liability & Assumption of Risk",
+                "content": "All trades executed via your linked CoinDCX API keys are initiated under your sole discretion and custody. You retain full responsibility for all profits, losses, margin calls, liquidations, and applicable Indian tax obligations (including Section 115BBH 30% tax on VDA profits and Section 194S 1% TDS)."
+            },
+            {
+                "section": "5. Mandatory Exit Condition",
+                "content": "If you do not agree to these terms, acknowledge the risks, and accept sole responsibility for your capital, you must immediately decline and terminate use of this application. Acceptance is an absolute prerequisite to unlocking trading functionality."
+            }
+        ]
+    }
+
+@router.post("/accept-terms")
+async def accept_terms(
+    request: AcceptTermsRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Records the user's explicit consent to the legal terms and risk disclaimers"""
+    if not request.accepted:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Terms must be accepted to use this application."
+        )
+    current_user.terms_accepted = True
+    current_user.terms_accepted_at = datetime.utcnow()
+    await db.commit()
+    await db.refresh(current_user)
+    return {"status": "success", "terms_accepted": True, "accepted_at": current_user.terms_accepted_at}
+
+@router.get("/about")
+async def get_about_platform():
+    """Provides technical documentation of what the engine does, monitors, and analyzes"""
+    return {
+        "app_name": "Autonomous Crypto Quantitative Trading Agent",
+        "engine_architecture": "Deterministic Multi-Timeframe Algorithmic Rules + Optional AI Signal Reasoning",
+        "description": "An institutional-grade trading system designed to automate futures market analysis on CoinDCX and filter high-probability setups while enforcing strict risk boundaries.",
+        "core_capabilities": [
+            "Autonomous 24/7 background scanning of high-liquidity crypto futures markets.",
+            "Automated order bracket management (Margin, Leverage, TP, SL, Liquidation Buffers).",
+            "Multi-tenant Telethon MTProto listener for Telegram trading signals.",
+            "AI-powered signal reasoning (Gemini / GPT-4o-mini) to cross-reference calls against live indicator data.",
+            "Macro news volatility circuit breaker pausing scans around high-impact US economic releases (CPI, FOMC, NFP)."
+        ],
+        "analytical_checks": {
+            "macro_regime": "Evaluates Bitcoin (BTC_USDT) on 1-Day chart against EMA 50 & EMA 200. Blocks Altcoin Longs if macro trend is bearish.",
+            "timeframe_confluence": "Requires simultaneous alignment across 1-Day, 1-Hour, 4-Hour, and 8-Hour candles before triggering entries.",
+            "trend_momentum": "EMA 20/50/200 trend alignment and MACD Histogram momentum positivity checks on confirmed candle closes.",
+            "choppiness_filter": "ADX(14) >= 20 threshold to eliminate sideways whipsaw markets.",
+            "volume_support": "Requires candle volume to exceed at least 80% of the 20-period Volume SMA.",
+            "risk_containment": "Enforces dynamic swing-level stop losses (0.8x to 3.0x ATR) maintaining a mandatory >=40% buffer above/below the liquidation price, targeting >=20% Net ROI after fees."
+        }
+    }
+
+
+@router.get("/key-guides")
+async def get_key_guides():
+    """Step-by-step setup guides for external credentials and API keys"""
+    return {
+        "coindcx": {
+            "title": "CoinDCX Futures API Credentials",
+            "steps": [
+                "1. Log in to CoinDCX ([https://coindcx.com](https://coindcx.com)) in your browser.",
+                "2. Click your Profile icon (top-right) -> select 'Profile'.",
+                "3. In the left menu, select 'API Dashboard'.",
+                "4. Click 'Create A New One' / 'Create API Key'.",
+                "5. Enter a label (e.g. 'TradeBot') and complete OTP verification.",
+                "6. Grant 'Futures Trading' permissions (leave 'Withdrawal' UNCHECKED for safety).",
+                "7. Copy both the API Key and Secret Key immediately and paste them into your profile."
+            ]
+        },
+        "gemini": {
+            "title": "Google Gemini API Key (Recommended & Free)",
+            "steps": [
+                "1. Open Google AI Studio ([https://aistudio.google.com](https://aistudio.google.com)).",
+                "2. Sign in with any standard Google account.",
+                "3. Click 'Get API key' from the left sidebar.",
+                "4. Click 'Create API key' and select your default project.",
+                "5. Copy the generated API key and paste it here. No credit card is required."
+            ]
+        },
+        "openai": {
+            "title": "OpenAI API Key (Optional)",
+            "steps": [
+                "1. Go to OpenAI Platform ([https://platform.openai.com](https://platform.openai.com)).",
+                "2. Sign in and navigate to Settings -> 'API Keys'.",
+                "3. Click 'Create new secret key', enter a name, and copy the key.",
+                "4. Paste the key here. Note: Requires a paid OpenAI developer balance ($5 minimum)."
+            ]
+        },
+        "telegram": {
+            "title": "Telegram MTProto API ID & Hash",
+            "steps": [
+                "1. Visit [https://my.telegram.org](https://my.telegram.org) in your web browser.",
+                "2. Log in with your personal phone number (including country code) and enter the code sent to your Telegram app.",
+                "3. Select 'API development tools'.",
+                "4. Enter an App title and Short name (e.g., 'SignalScanner').",
+                "5. Submit the form to generate your numeric 'api_id' and alphanumeric 'api_hash'.",
+                "6. Copy and paste both values into their respective fields."
+            ]
+        }
+    }
+
+
+
+telegram.py
+-----------
+
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.core.database import get_db
+from app.api.deps import get_current_user
+from app.models.user import User
+from app.models.telegram_signal import TelegramSignal
+from app.services.telegram_service import TelegramSignalListener, active_listeners
+from app.services.ai_service import AIService
+from app.core.market_data import get_market_trend, fetch_raw_candles
+from app.core.indicators import calculate_all_indicators
+from sqlalchemy import select
+from typing import List
+
+router = APIRouter(prefix="/telegram", tags=["Telegram Signals"])
+
+
+@router.post("/start")
+async def start_telegram_listener(
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_verified_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Start Telegram signal listener for user"""
+    if not current_user.telegram_api_id or not current_user.telegram_api_hash:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Telegram credentials not configured"
+        )
+    
+    if not current_user.telegram_channels:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No Telegram channels configured"
+        )
+    
+    if current_user.id in active_listeners:
+        return {"message": "Listener already running"}
+    
+    # Create and start listener with user-specific session
+    listener = TelegramSignalListener(
+        current_user.id,
+        current_user.telegram_api_id,
+        current_user.telegram_api_hash,
+        current_user.telegram_channels
+    )
+    
+    # Set callback to handle signals
+    async def handle_signal(signal_data):
+        # Save signal to database
+        signal = TelegramSignal(
+            user_id=current_user.id,
+            coin_pair=signal_data.get("coin_pair"),
+            direction=signal_data.get("direction"),
+            leverage=signal_data.get("leverage"),
+            entry_zone=signal_data.get("entry_zone"),
+            take_profit_targets=signal_data.get("take_profit_targets"),
+            stop_loss=signal_data.get("stop_loss"),
+            channel_name=signal_data.get("channel_name"),
+            channel_id=signal_data.get("channel_id"),
+            message_id=signal_data.get("message_id"),
+            raw_message=signal_data.get("raw_message"),
+            received_at=signal_data.get("timestamp")
+        )
+        db.add(signal)
+        await db.commit()
+        
+        # AI Analysis if enabled
+        if current_user.ai_enabled and current_user.encrypted_ai_api_key:
+            from app.core.encryption import decrypt_data
+            try:
+                api_key = decrypt_data(current_user.encrypted_ai_api_key)
+                
+                # Get market context
+                btc_trend = await get_market_trend("B-BTC_USDT", "1d")
+                coin_pair = signal_data.get("coin_pair", "")
+                if coin_pair:
+                    coin_1d_trend = await get_market_trend(coin_pair, "1d")
+                    coin_1h_trend = await get_market_trend(coin_pair, "1h")
+                    
+                    # Get indicator values
+                    df = await fetch_raw_candles(coin_pair, "1h", limit=100)
+                    if df is not None:
+                        df = calculate_all_indicators(df)
+                        last_bar = df.iloc[-2]
+                        
+                        market_context = {
+                            "btc_trend": btc_trend,
+                            "coin_1d_trend": coin_1d_trend,
+                            "coin_1h_trend": coin_1h_trend,
+                            "rsi": last_bar.get("rsi"),
+                            "macd_hist": last_bar.get("macdhist"),
+                            "adx": last_bar.get("adx"),
+                            "ema50": last_bar.get("ema50"),
+                            "ema200": last_bar.get("ema200")
+                        }
+                        
+                        # Get AI analysis
+                        ai_result = await AIService.analyze_signal(
+                            current_user.ai_provider,
+                            api_key,
+                            signal_data,
+                            market_context
+                        )
+                        
+                        signal.ai_verdict = ai_result["verdict"]
+                        signal.ai_reasoning = ai_result["reasoning"]
+                        signal.ai_confidence = ai_result["confidence"]
+                        signal.market_trend = coin_1d_trend
+                        signal.indicator_confluence = market_context
+                        signal.is_processed = True
+                        signal.processed_at = signal_data.get("timestamp")
+                        
+                        await db.commit()
+                        
+                        # Send WebSocket notification
+                        from app.api.v1.websocket import send_signal_alert
+                        await send_signal_alert(current_user.id, {
+                            "signal": signal_data,
+                            "ai_verdict": ai_result
+                        })
+            except Exception as e:
+                print(f"AI analysis failed: {e}")
+    
+    listener.set_signal_callback(handle_signal)
+    
+    # Start in background
+    async def start_listener():
+        await listener.start()
+    
+    background_tasks.add_task(start_listener)
+    active_listeners[current_user.id] = listener
+    
+    return {"message": "Telegram listener started"}
+
+
+@router.post("/stop")
+async def stop_telegram_listener(
+    current_user: User = Depends(get_current_user)
+):
+    """Stop Telegram signal listener for user"""
+    if current_user.id not in active_listeners:
+        return {"message": "Listener not running"}
+    
+    listener = active_listeners[current_user.id]
+    await listener.stop()
+    del active_listeners[current_user.id]
+    
+    return {"message": "Telegram listener stopped"}
+
+
+@router.get("/signals")
+async def get_telegram_signals(
+    limit: int = 50,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get received Telegram signals"""
+    result = await db.execute(
+        select(TelegramSignal)
+        .where(TelegramSignal.user_id == current_user.id)
+        .order_by(TelegramSignal.received_at.desc())
+        .limit(limit)
+    )
+    signals = result.scalars().all()
+    
+    return [
+        {
+            "id": s.id,
+            "coin_pair": s.coin_pair,
+            "direction": s.direction,
+            "leverage": s.leverage,
+            "entry_zone": s.entry_zone,
+            "take_profit_targets": s.take_profit_targets,
+            "stop_loss": s.stop_loss,
+            "channel_name": s.channel_name,
+            "ai_verdict": s.ai_verdict,
+            "ai_reasoning": s.ai_reasoning,
+            "ai_confidence": s.ai_confidence,
+            "received_at": s.received_at,
+            "is_processed": s.is_processed
+        }
+        for s in signals
+    ]
+
+
+@router.get("/status")
+async def get_telegram_status(
+    current_user: User = Depends(get_current_user)
+):
+    """Get Telegram listener status"""
+    return {
+        "is_running": current_user.id in active_listeners,
+        "channels": current_user.telegram_channels,
+        "has_credentials": bool(current_user.telegram_api_id and current_user.telegram_api_hash)
+    }
+
+
+
+
+trades.py
+--------
+
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, and_
+from app.core.database import get_db
+from app.api.deps import get_current_user, get_current_verified_user
+from app.models.user import User
+from app.models.trade import Trade
+from app.schemas.trade import TradeResponse, ManualCloseRequest, TradeStats
+from app.services.position_tracker import PositionTracker
+from app.services.coindcx_executor import get_user_executor
+from app.core.news_calendar import circuit_breaker
+
+router = APIRouter(prefix="/trades", tags=["Trades"])
+
+
+@router.get("/active", response_model=list[TradeResponse])
+async def get_active_trades(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get all active positions for current user"""
+    trades = await PositionTracker.get_active_positions(db, current_user.id)
+    return [TradeResponse.model_validate(trade) for trade in trades]
+
+
+@router.get("/history", response_model=list[TradeResponse])
+async def get_trade_history(
+    limit: int = 50,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get trade history for current user"""
+    result = await db.execute(
+        select(Trade)
+        .where(Trade.user_id == current_user.id)
+        .order_by(Trade.entry_time.desc())
+        .limit(limit)
+    )
+    trades = result.scalars().all()
+    return [TradeResponse.model_validate(trade) for trade in trades]
+
+
+@router.get("/stats", response_model=TradeStats)
+async def get_trade_statistics(
+    period: str = "today",
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get trade statistics for a period (today, yesterday, week, month)"""
+    stats = await PositionTracker.get_trade_stats(db, current_user.id, period)
+    return TradeStats(**stats)
+
+
+@router.post("/close")
+async def close_position(
+    request: ManualCloseRequest,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_verified_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Manually close a position"""
+    # Get the trade
+    result = await db.execute(
+        select(Trade).where(
+            and_(
+                Trade.id == request.trade_id,
+                Trade.user_id == current_user.id,
+                Trade.status == "OPEN"
+            )
+        )
+    )
+    trade = result.scalar_one_or_none()
+    
+    if not trade:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Trade not found or already closed"
+        )
+    
+    # Execute close on CoinDCX
+    executor = await get_user_executor(current_user)
+    if executor:
+        try:
+            # Calculate quantity to close
+            quantity = (trade.margin_used * trade.leverage) / trade.entry_price
+            await executor.close_position(trade.coin_pair, quantity)
+        except Exception as e:
+            print(f"Failed to close position on exchange: {e}")
+    
+    # Close in database
+    await PositionTracker.close_position(db, trade, None, "MANUAL")
+    
+    return {"message": "Position closed successfully"}
+
+
+@router.get("/{trade_id}", response_model=TradeResponse)
+async def get_trade(
+    trade_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get details of a specific trade"""
+    result = await db.execute(
+        select(Trade).where(
+            and_(
+                Trade.id == trade_id,
+                Trade.user_id == current_user.id
+            )
+        )
+    )
+    trade = result.scalar_one_or_none()
+    
+    if not trade:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Trade not found"
+        )
+    
+    return TradeResponse.model_validate(trade)
+
+
+@router.post("/update-pnl")
+async def update_all_pnl(
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Update PnL for all active positions (background task)"""
+    async def update_task():
+        trades = await PositionTracker.get_active_positions(db, current_user.id)
+        for trade in trades:
+            await PositionTracker.update_position_pnl(db, trade)
+    
+    background_tasks.add_task(update_task)
+    return {"message": "PnL update started in background"}
+
+
+
+websocket.py
+------------
+
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
+from typing import Dict, Set
+import json
+import asyncio
+from app.api.deps import get_current_user_ws
+from app.models.user import User
+
+router = APIRouter(prefix="/ws", tags=["WebSocket"])
+
+
+class ConnectionManager:
+    """Manage WebSocket connections for real-time updates"""
+    
+    def __init__(self):
+        self.active_connections: Dict[int, Set[WebSocket]] = {}
+    
+    async def connect(self, websocket: WebSocket, user_id: int):
+        await websocket.accept()
+        if user_id not in self.active_connections:
+            self.active_connections[user_id] = set()
+        self.active_connections[user_id].add(websocket)
+    
+    def disconnect(self, websocket: WebSocket, user_id: int):
+        if user_id in self.active_connections:
+            self.active_connections[user_id].discard(websocket)
+            if not self.active_connections[user_id]:
+                del self.active_connections[user_id]
+    
+    async def send_personal_message(self, message: dict, user_id: int):
+        if user_id in self.active_connections:
+            for connection in self.active_connections[user_id]:
+                try:
+                    await connection.send_json(message)
+                except:
+                    self.disconnect(connection, user_id)
+    
+    async def broadcast_to_all(self, message: dict):
+        for user_id, connections in self.active_connections.items():
+            for connection in connections:
+                try:
+                    await connection.send_json(message)
+                except:
+                    self.disconnect(connection, user_id)
+
+
+manager = ConnectionManager()
+
+
+@router.websocket("/live-updates")
+async def websocket_endpoint(websocket: WebSocket):
+    """WebSocket endpoint for real-time trading updates"""
+    # Authenticate user from query param
+    token = websocket.query_params.get("token")
+    if not token:
+        await websocket.close(code=4001, reason="Missing token")
+        return
+    
+    # Validate token and get user (simplified - in production use proper auth)
+    # For now, we'll accept the connection and use user_id from query
+    user_id = websocket.query_params.get("user_id")
+    if not user_id:
+        await websocket.close(code=4002, reason="Missing user_id")
+        return
+    
+    try:
+        user_id = int(user_id)
+    except ValueError:
+        await websocket.close(code=4003, reason="Invalid user_id")
+        return
+    
+    await manager.connect(websocket, user_id)
+    
+    try:
+        # Send initial connection message
+        await websocket.send_json({
+            "type": "connected",
+            "message": "WebSocket connected successfully",
+            "user_id": user_id
+        })
+        
+        # Keep connection alive and handle incoming messages
+        while True:
+            data = await websocket.receive_text()
+            message = json.loads(data)
+            
+            # Handle client messages (e.g., subscribe to specific channels)
+            if message.get("type") == "ping":
+                await websocket.send_json({"type": "pong"})
+            
+    except WebSocketDisconnect:
+        manager.disconnect(websocket, user_id)
+    except Exception as e:
+        print(f"WebSocket error: {e}")
+        manager.disconnect(websocket, user_id)
+
+
+# Helper functions to send updates from other parts of the app
+async def send_trade_update(user_id: int, trade_data: dict):
+    """Send trade update to user's WebSocket connections"""
+    await manager.send_personal_message({
+        "type": "trade_update",
+        "data": trade_data
+    }, user_id)
+
+
+async def send_scanner_log(user_id: int, log_data: dict):
+    """Send scanner log update to user's WebSocket connections"""
+    await manager.send_personal_message({
+        "type": "scanner_log",
+        "data": log_data
+    }, user_id)
+
+
+async def send_signal_alert(user_id: int, signal_data: dict):
+    """Send Telegram signal alert to user's WebSocket connections"""
+    await manager.send_personal_message({
+        "type": "signal_alert",
+        "data": signal_data
+    }, user_id)
+
+
+async def send_system_status(user_id: int, status: str, message: str):
+    """Send system status update to user's WebSocket connections"""
+    await manager.send_personal_message({
+        "type": "system_status",
+        "status": status,
+        "message": message
+    }, user_id)
+
+
+
+
+__init__.py
+
+
+D:\Devin\Crypto-App\backend\app\core
+
+__init__.py
+
+config.py
+---------
+
+
+from pydantic_settings import BaseSettings
+from typing import Optional
+import os
+
+
+class Settings(BaseSettings):
+    # SMTP Configuration
+    SMTP_HOST: str = "smtp.gmail.com"
+    SMTP_PORT: int = 587
+    SMTP_EMAIL: str
+    SMTP_PASSWORD: str
+    
+    # JWT Configuration
+    SECRET_KEY: str
+    ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440
+    
+    # Database Configuration
+    DATABASE_URL: str = "sqlite+aiosqlite:///./crypto_trading.db"
+    
+    # CoinDCX API Configuration (defaults)
+    COINDCX_API_KEY: Optional[str] = None
+    COINDCX_API_SECRET: Optional[str] = None
+    
+    # AI API Configuration
+    GEMINI_API_KEY: Optional[str] = None
+    OPENAI_API_KEY: Optional[str] = None
+    COPILOT_API_KEY: Optional[str] = None
+    
+    # Telegram Configuration
+    TELEGRAM_API_ID: Optional[str] = None
+    TELEGRAM_API_HASH: Optional[str] = None
+    
+    # CoinDCX API Endpoints
+    COINDCX_BASE_URL: str = "https://api.coindcx.com"
+    COINDCX_PUBLIC_URL: str = "https://public.coindcx.com/market_data/candles"
+    
+    # Trading Configuration
+    DEFAULT_RISK_PER_TRADE: float = 0.25
+    MIN_PROFIT_ROI: float = 0.20
+    COINDCX_TAKER_FEE: float = 0.0005
+    MIN_ORDER_NOTIONAL: float = 15.0
+    
+    # Default Coin Universe
+    BTC_PAIR: str = "B-BTC_USDT"
+    DEFAULT_COINS: list = [
+        "B-BTC_USDT",
+        "B-ETH_USDT",
+        "B-SOL_USDT",
+        "B-DOGE_USDT",
+        "B-BNB_USDT",
+        "B-XRP_USDT",
+        "B-ADA_USDT"
+    ]
+    DEFAULT_TIMEFRAMES: list = ["4h", "8h", "1d"]
+    
+    class Config:
+        env_file = ".env"
+        case_sensitive = True
+
+
+settings = Settings()
+
+
+
+database.py
+-----------
+
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
+from app.core.config import settings
+
+engine = create_async_engine(
+    settings.DATABASE_URL,
+    echo=False
+)
+
+AsyncSessionLocal = sessionmaker(
+    engine,
+    class_=AsyncSession,
+    expire_on_commit=False
+)
+
+Base = declarative_base()
+
+
+async def init_db():
+    """Initialize database tables"""
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+
+async def get_db():
+    """Dependency for getting database sessions"""
+    async with AsyncSessionLocal() as session:
+        try:
+            yield session
+        finally:
+            await session.close()
+
+
+
+encryption.py
+-------------
+
+from cryptography.fernet import Fernet
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+import base64
+import os
+from app.core.config import settings
+
+
+def get_encryption_key() -> bytes:
+    """Derive encryption key from JWT secret"""
+    kdf = PBKDF2HMAC(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=b'crypto_trading_salt',  # In production, use a proper salt
+        iterations=100000,
+    )
+    key = base64.urlsafe_b64encode(kdf.derive(settings.SECRET_KEY.encode()))
+    return key
+
+
+def encrypt_data(data: str) -> str:
+    """Encrypt sensitive data (API keys, secrets)"""
+    key = get_encryption_key()
+    fernet = Fernet(key)
+    encrypted = fernet.encrypt(data.encode())
+    return base64.urlsafe_b64encode(encrypted).decode()
+
+
+def decrypt_data(encrypted_data: str) -> str:
+    """Decrypt sensitive data"""
+    key = get_encryption_key()
+    fernet = Fernet(key)
+    encrypted_bytes = base64.urlsafe_b64decode(encrypted_data.encode())
+    decrypted = fernet.decrypt(encrypted_bytes)
+    return decrypted.decode()
+
+
+
+indicators.py
+-------------
+
+import pandas as pd
+import numpy as np
+# Preserving existing indicator logic from Traders/indicators.py
+
+
+def calculate_ema(series: pd.Series, period: int) -> pd.Series:
+    """Calculates Exponential Moving Average (EMA)."""
+    return series.ewm(span=period, adjust=False).mean()
+
+
+def calculate_rsi(series: pd.Series, period: int = 14) -> pd.Series:
+    """Calculates Relative Strength Index (RSI) using Wilder's smoothing."""
+    delta = series.diff()
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
+    
+    avg_gain = gain.ewm(alpha=1/period, min_periods=period, adjust=False).mean()
+    avg_loss = loss.ewm(alpha=1/period, min_periods=period, adjust=False).mean()
+    
+    rs = avg_gain / (avg_loss + 1e-9)
+    return 100 - (100 / (1 + rs))
+
+
+def calculate_macd(series: pd.Series, fast: int = 12, slow: int = 26, signal: int = 9):
+    """Calculates MACD Line, Signal Line, and MACD Histogram."""
+    exp1 = calculate_ema(series, fast)
+    exp2 = calculate_ema(series, slow)
+    macd_line = exp1 - exp2
+    signal_line = calculate_ema(macd_line, signal)
+    histogram = macd_line - signal_line
+    return macd_line, signal_line, histogram
+
+
+def calculate_atr(df: pd.DataFrame, period: int = 14) -> pd.Series:
+    """Calculates Average True Range (ATR)."""
+    tr1 = df["high"] - df["low"]
+    tr2 = (df["high"] - df["close"].shift()).abs()
+    tr3 = (df["low"] - df["close"].shift()).abs()
+    tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+    return tr.ewm(alpha=1/period, min_periods=period, adjust=False).mean()
+
+
+def calculate_volume_sma(series: pd.Series, period: int = 20) -> pd.Series:
+    """Calculates Simple Moving Average of Volume for breakout confirmation."""
+    return series.rolling(window=period, min_periods=period).mean()
+
+
+def calculate_adx(df: pd.DataFrame, period: int = 14) -> pd.Series:
+    """
+    Calculates Average Directional Index (ADX) to filter out choppy/sideways markets.
+    ADX >= 20 confirms an active trend; ADX < 20 indicates sideways consolidation.
+    """
+    df = df.copy()
+    high_diff = df["high"].diff()
+    low_diff = -df["low"].diff()
+
+    # Directional Movement (+DM and -DM)
+    pos_dm = np.where((high_diff > low_diff) & (high_diff > 0), high_diff, 0.0)
+    neg_dm = np.where((low_diff > high_diff) & (low_diff > 0), low_diff, 0.0)
+
+    # True Range
+    tr1 = df["high"] - df["low"]
+    tr2 = (df["high"] - df["close"].shift()).abs()
+    tr3 = (df["low"] - df["close"].shift()).abs()
+    tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+
+    # Wilder's Smoothing
+    atr_smooth = tr.ewm(alpha=1/period, min_periods=period, adjust=False).mean()
+    pos_dm_smooth = pd.Series(pos_dm, index=df.index).ewm(alpha=1/period, min_periods=period, adjust=False).mean()
+    neg_dm_smooth = pd.Series(neg_dm, index=df.index).ewm(alpha=1/period, min_periods=period, adjust=False).mean()
+
+    # Directional Indicators (+DI and -DI)
+    pos_di = 100 * (pos_dm_smooth / (atr_smooth + 1e-9))
+    neg_di = 100 * (neg_dm_smooth / (atr_smooth + 1e-9))
+
+    # Directional Movement Index (DX) and ADX
+    dx = 100 * (pos_di - neg_di).abs() / (pos_di + neg_di + 1e-9)
+    adx = dx.ewm(alpha=1/period, min_periods=period, adjust=False).mean()
+    return adx
+
+
+def get_dynamic_swing_levels(df: pd.DataFrame, live_price: float, atr: float):
+    """
+    Scans across 5, 10, and 15 closed candles to pick the most balanced structural level.
+    Ensures the stop is at least 0.8x ATR away (noise protection) but caps it at 3.0x ATR.
+    """
+    windows = [5, 10, 15]
+    best_swing_low = None
+    best_swing_high = None
+
+    # Evaluate Long Stop Loss candidate (Swing Low)
+    for w in windows:
+        if len(df) < w + 2:
+            continue
+        recent_closed = df.iloc[-(w + 1):-1]
+        candidate_low = float(recent_closed["low"].min())
+        distance = live_price - candidate_low
+        
+        # Accept if distance is at least 0.8 * ATR from entry
+        if distance >= (0.8 * atr) and distance <= (3.0 * atr):
+            best_swing_low = candidate_low
+            break
+
+    # Evaluation fallback if all windows were too close or too far
+    if best_swing_low is None:
+        recent_5 = df.iloc[-6:-1]
+        best_swing_low = float(recent_5["low"].min())
+
+    # Evaluate Short Stop Loss candidate (Swing High)
+    for w in windows:
+        if len(df) < w + 2:
+            continue
+        recent_closed = df.iloc[-(w + 1):-1]
+        candidate_high = float(recent_closed["high"].max())
+        distance = candidate_high - live_price
+        
+        if distance >= (0.8 * atr) and distance <= (3.0 * atr):
+            best_swing_high = candidate_high
+            break
+
+    if best_swing_high is None:
+        recent_5 = df.iloc[-6:-1]
+        best_swing_high = float(recent_5["high"].max())
+
+    return best_swing_low, best_swing_high
+
+
+def calculate_liquidation_price(entry_price: float, leverage: int, direction: str, mm_rate: float = 0.005) -> float:
+    """
+    Computes theoretical liquidation price under isolated margin.
+    mm_rate: Standard maintenance margin rate (~0.5% for major pairs).
+    """
+    if direction == "LONG":
+        # Liq Price = Entry * (1 - (1 / Leverage) + mm_rate)
+        liq_price = entry_price * (1.0 - (1.0 / leverage) + mm_rate)
+        return max(0.0, liq_price)
+    else:
+        # Liq Price = Entry * (1 + (1 / Leverage) - mm_rate)
+        liq_price = entry_price * (1.0 + (1.0 / leverage) - mm_rate)
+        return liq_price
+
+
+def calculate_all_indicators(df: pd.DataFrame) -> pd.DataFrame:
+    """Master indicator processor for candle DataFrames."""
+    df = df.copy()
+
+    # 1. Trend Indicators (EMA 20, 50, 200)
+    df["ema20"] = calculate_ema(df["close"], 20)
+    df["ema50"] = calculate_ema(df["close"], 50)
+    df["ema200"] = calculate_ema(df["close"], 200)
+
+    # 2. Momentum Indicators
+    df["rsi"] = calculate_rsi(df["close"], 14)
+    macd, signal, hist = calculate_macd(df["close"], 12, 26, 9)
+    df["macd"] = macd
+    df["macdsignal"] = signal
+    df["macdhist"] = hist
+
+    # 3. Volatility, Volume, and Trend Strength
+    df["atr"] = calculate_atr(df, 14)
+    df["vol_sma20"] = calculate_volume_sma(df["volume"], 20)
+    df["adx"] = calculate_adx(df, 14)
+
+    return df
+
+
+
+market_data.py
+--------------
+
+import time
+import httpx
+import pandas as pd
+from app.core.config import settings
+
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
+}
+
+
+async def fetch_raw_candles(pair: str, interval: str = "1h", limit: int = 1000, start_time: int = None) -> pd.DataFrame | None:
+    """Fetch raw candle data from CoinDCX public API"""
+    url = f"{settings.COINDCX_PUBLIC_URL}?pair={pair}&interval={interval}&limit={limit}"
+    if start_time:
+        url += f"&startTime={start_time}"
+        
+    try:
+        async with httpx.AsyncClient(timeout=12.0) as client:
+            res = await client.get(url, headers=HEADERS)
+            if res.status_code != 200:
+                return None
+            
+            data = res.json()
+            if not isinstance(data, list) or len(data) < 1:
+                return None
+
+            parsed = []
+            for c in reversed(data):
+                if isinstance(c, dict) and "close" in c:
+                    parsed.append([
+                        int(c.get("time", 0)),
+                        float(c["open"]),
+                        float(c["high"]),
+                        float(c["low"]),
+                        float(c["close"]),
+                        float(c.get("volume", 0.0))
+                    ])
+                    
+            df = pd.DataFrame(parsed, columns=["time", "open", "high", "low", "close", "volume"])
+            return df
+
+    except Exception as e:
+        print(f"  ❌ [{pair} | {interval}] Connection error: {e}")
+        return None
+
+
+async def fetch_current_price(pair: str) -> float | None:
+    """Fetch current price for a trading pair"""
+    df = await fetch_raw_candles(pair, interval="1m", limit=1)
+    if df is not None and not df.empty:
+        return float(df.iloc[-1]["close"])
+    df = await fetch_raw_candles(pair, interval="1h", limit=1)
+    if df is not None and not df.empty:
+        return float(df.iloc[-1]["close"])
+    return None
+
+
+async def fetch_deep_1h_candles(pair: str) -> pd.DataFrame | None:
+    """Fetch deep historical 1h candles by combining multiple requests"""
+    df_recent = await fetch_raw_candles(pair, interval="1h", limit=1000)
+    if df_recent is None or len(df_recent) < 50:
+        return None
+
+    oldest_time = int(df_recent.iloc[0]["time"])
+    prior_start_time = oldest_time - (1000 * 60 * 60 * 1000)
+
+    df_prior = await fetch_raw_candles(pair, interval="1h", limit=1000, start_time=prior_start_time)
+    
+    if df_prior is not None and len(df_prior) > 0:
+        combined = pd.concat([df_prior, df_recent], ignore_index=True)
+        combined = combined.drop_duplicates(subset=["time"]).sort_values("time").reset_index(drop=True)
+        return combined
+
+    return df_recent
+
+
+async def fetch_candles(pair: str, interval: str) -> pd.DataFrame | None:
+    """Fetch candles with resampling for higher timeframes"""
+    if interval in ["4h", "8h"]:
+        df_1h = await fetch_deep_1h_candles(pair)
+        if df_1h is None or len(df_1h) < 120:
+            return None
+            
+        df_1h["datetime"] = pd.to_datetime(df_1h["time"], unit="ms")
+        df_1h.set_index("datetime", inplace=True)
+        
+        rule = "4h" if interval == "4h" else "8h"
+        resampled = df_1h.resample(rule).agg({
+            "time": "first",
+            "open": "first",
+            "high": "max",
+            "low": "min",
+            "close": "last",
+            "volume": "sum"
+        }).dropna().reset_index(drop=True)
+        
+        return resampled
+
+    if interval == "1d":
+        df_daily = await fetch_raw_candles(pair, interval="1d", limit=250)
+        if df_daily is None or len(df_daily) < 50:
+            return None
+            
+        df_daily = df_daily.drop_duplicates(subset=["time"]).sort_values("time").reset_index(drop=True)
+        df_daily["datetime"] = pd.to_datetime(df_daily["time"], unit="ms")
+        df_daily.set_index("datetime", inplace=True)
+        
+        resampled_1d = df_daily.resample("1D").agg({
+            "time": "first",
+            "open": "first",
+            "high": "max",
+            "low": "min",
+            "close": "last",
+            "volume": "sum"
+        }).dropna().reset_index(drop=True)
+        
+        return resampled_1d
+
+    # 30m check with 50 bar minimum
+    if interval == "30m":
+        df_30m = await fetch_raw_candles(pair, interval="30m", limit=100)
+        if df_30m is None or len(df_30m) < 50:
+            return None
+        return df_30m
+
+    return await fetch_raw_candles(pair, interval=interval, limit=250)
+
+
+
+
+news_calender.py
+----------------
+
+import httpx
+from datetime import datetime, timedelta
+from typing import List, Dict, Optional
+from pytz import timezone
+
+IST = timezone("Asia/Kolkata")
+
+# High-impact economic events that trigger circuit breaker
+HIGH_IMPACT_EVENTS = [
+    "CPI", "Core CPI", "FOMC", "Federal Reserve", "Interest Rate Decision",
+    "NFP", "Non-Farm Payrolls", "Unemployment Rate", "GDP", "PCE",
+    "Core PCE", "Retail Sales", "ISM Manufacturing", "ISM Services",
+    "Consumer Confidence", "CB Consumer Confidence"
+]
+
+
+class EconomicEvent:
+    def __init__(self, name: str, time: datetime, impact: str = "High"):
+        self.name = name
+        self.time = time
+        self.impact = impact
+    
+    def is_high_impact(self) -> bool:
+        return self.impact == "High" or any(
+            event.lower() in self.name.lower() 
+            for event in HIGH_IMPACT_EVENTS
+        )
+
+
+class NewsCircuitBreaker:
+    def __init__(self):
+        self.events: List[EconomicEvent] = []
+        self.freeze_window_minutes = 30  # Freeze before and after events
+    
+    async def fetch_economic_calendar(self, days_ahead: int = 7) -> List[EconomicEvent]:
+        """Fetch economic calendar from Trading Economics or similar API"""
+        try:
+            # Using Trading Economics API (free tier available)
+            # Alternative: ForexFactory, Investing.com, etc.
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                today = datetime.now(IST).strftime("%Y-%m-%d")
+                end_date = (datetime.now(IST) + timedelta(days=days_ahead)).strftime("%Y-%m-%d")
+                
+                # Trading Economics API endpoint
+                url = f"https://api.tradingeconomics.com/calendar?country=United States&c={today}&f={end_date}"
+                
+                # Note: This requires an API key. For production, integrate with proper service.
+                # For now, we'll return empty and implement manual event addition
+                response = await client.get(url)
+                if response.status_code == 200:
+                    data = response.json()
+                    events = []
+                    for item in data:
+                        if item.get("impact", "Low") in ["High", "Medium"]:
+                            event_time = datetime.strptime(item["Date"], "%Y-%m-%dT%H:%M:%S")
+                            event_time = IST.localize(event_time)
+                            events.append(EconomicEvent(
+                                name=item["Event"],
+                                time=event_time,
+                                impact=item["impact"]
+                            ))
+                    self.events = events
+                    return events
+        except Exception as e:
+            print(f"Failed to fetch economic calendar: {e}")
+        
+        return []
+    
+    def add_manual_event(self, name: str, time: datetime, impact: str = "High"):
+        """Manually add a high-impact event"""
+        event = EconomicEvent(name, time, impact)
+        self.events.append(event)
+    
+    def is_trading_frozen(self) -> tuple[bool, Optional[EconomicEvent]]:
+        """Check if trading should be frozen due to upcoming high-impact news"""
+        now = datetime.now(IST)
+        
+        for event in self.events:
+            if not event.is_high_impact():
+                continue
+            
+            time_diff = abs((event.time - now).total_seconds() / 60)
+            
+            if time_diff <= self.freeze_window_minutes:
+                return True, event
+        
+        return False, None
+    
+    def get_frozen_status_message(self) -> Optional[str]:
+        """Get status message if trading is frozen"""
+        is_frozen, event = self.is_trading_frozen()
+        
+        if is_frozen and event:
+            event_time_ist = event.time.strftime("%I:%M %p")
+            return f"• SCAN PAUSED: High-impact {event.name} at {event_time_ist} IST. Waiting for volatility to settle."
+        
+        return None
+    
+    def get_upcoming_events(self, hours: int = 24) -> List[Dict]:
+        """Get upcoming high-impact events within specified hours"""
+        now = datetime.now(IST)
+        upcoming = []
+        
+        for event in self.events:
+            if not event.is_high_impact():
+                continue
+            
+            time_diff = (event.time - now).total_seconds() / 3600
+            if 0 < time_diff <= hours:
+                upcoming.append({
+                    "name": event.name,
+                    "time": event.time.isoformat(),
+                    "time_ist": event.time.strftime("%Y-%m-%d %I:%M %p"),
+                    "impact": event.impact,
+                    "hours_until": round(time_diff, 1)
+                })
+        
+        return sorted(upcoming, key=lambda x: x["hours_until"])
+
+
+# Global circuit breaker instance
+circuit_breaker = NewsCircuitBreaker()
+
+
+
+
+security.py
+-----------
+
+from datetime import datetime, timedelta
+from typing import Optional
+from jose import JWTError, jwt
+from passlib.context import CryptContext
+from app.core.config import settings
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """Verify a plain password against a hashed password"""
+    return pwd_context.verify(plain_password, hashed_password)
+
+
+def get_password_hash(password: str) -> str:
+    """Hash a password"""
+    return pwd_context.hash(password)
+
+
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
+    """Create a JWT access token"""
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+    return encoded_jwt
+
+
+def decode_access_token(token: str) -> Optional[dict]:
+    """Decode and verify a JWT access token"""
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        return payload
+    except JWTError:
+        return None
+
+
+strategy.py
+-----------
+
+import pandas as pd
+from app.core.config import settings
+from app.core.market_data import fetch_candles, fetch_raw_candles
+from app.core.indicators import (
+    calculate_all_indicators,
+    get_dynamic_swing_levels,
+    calculate_liquidation_price
+)
+
+
+async def get_market_trend(pair: str, interval: str) -> str:
+    """Get market trend for a pair and interval"""
+    if interval == "1h":
+        df = await fetch_raw_candles(pair, interval="1h", limit=300)
+    else:
+        df = await fetch_candles(pair, interval)
+
+    if df is None or len(df) < 50:
+        return "NEUTRAL"
+
+    df = calculate_all_indicators(df)
+    prev_closed = df.iloc[-2]
+
+    if prev_closed["close"] > prev_closed["ema50"] and prev_closed["close"] > prev_closed.get("ema200", prev_closed["ema50"]):
+        return "BULLISH"
+    elif prev_closed["close"] < prev_closed["ema50"]:
+        return "BEARISH"
+    return "NEUTRAL"
+
+
+async def get_btc_macro_trend() -> str:
+    """Get BTC 1D macro trend for regime filter"""
+    return await get_market_trend(settings.BTC_PAIR, "1d")
+
+
+async def evaluate_pair(pair: str, capital: float, btc_trend: str, user_timeframes: list = None):
+    """Evaluate a single trading pair across multiple timeframes"""
+    if user_timeframes is None:
+        user_timeframes = settings.DEFAULT_TIMEFRAMES
+    
+    candidate_trades = []
+    risk_per_trade = settings.DEFAULT_RISK_PER_TRADE
+    allocated_margin = capital * risk_per_trade
+    clean_pair = pair.replace("B-", "")
+
+    # 1. 1D Macro Confluence Check
+    df_1d = await fetch_candles(pair, "1d")
+    is_1d_bullish = False
+    is_1d_bearish = False
+    if df_1d is not None and len(df_1d) >= 100:
+        df_1d = calculate_all_indicators(df_1d)
+        closed_1d = df_1d.iloc[-2]
+        is_1d_bullish = (closed_1d["close"] > closed_1d["ema50"]) and (closed_1d["close"] > closed_1d["ema200"])
+        is_1d_bearish = (closed_1d["close"] < closed_1d["ema50"])
+
+    # 2. 1H Execution Confirmation Gate
+    df_1h = await fetch_raw_candles(pair, interval="1h", limit=300)
+    ltf_1h_bullish = False
+    ltf_1h_bearish = False
+    if df_1h is not None and len(df_1h) >= 50:
+        df_1h = calculate_all_indicators(df_1h)
+        bar_1h = df_1h.iloc[-2]
+        ltf_1h_bullish = bar_1h["close"] > bar_1h["ema50"]
+        ltf_1h_bearish = bar_1h["close"] < bar_1h["ema50"]
+
+    # 3. Check 30m if available (optional gate)
+    df_30m = await fetch_candles(pair, "30m")
+    has_30m_data = df_30m is not None and len(df_30m) >= 50
+
+    for tf in user_timeframes:
+        df = await fetch_candles(pair, tf)
+        if df is None or len(df) < 50:
+            continue
+
+        df = calculate_all_indicators(df)
+        
+        closed_bar = df.iloc[-2]
+        prior_closed_bar = df.iloc[-3]
+        live_entry = float(df.iloc[-1]["close"])
+        atr = closed_bar["atr"]
+
+        swing_low, swing_high = get_dynamic_swing_levels(df, live_entry, atr)
+        volatility_ratio = atr / live_entry
+        leverage = 8 if volatility_ratio < 0.025 else 5
+
+        direction = None
+        sl = tp = net_roi = net_profit = commission = liq_price = None
+        is_high_risk_macd = False
+
+        long_checklist = {
+            "BTC Macro Trend Bullish": (pair == settings.BTC_PAIR or btc_trend == "BULLISH"),
+            "1D Trend Confluence (50 & 200 EMA)": is_1d_bullish,
+            "Price > EMA50 (Trend Alignment)": closed_bar["close"] > closed_bar["ema50"],
+            "ADX >= 20 (Non-Choppy Market)": closed_bar["adx"] >= 20.0,
+            "RSI in Pullback Zone (40-60)": (40 <= closed_bar["rsi"] <= 60),
+            "MACD Momentum Positive": (closed_bar["macdhist"] > 0 and closed_bar["macdhist"] > prior_closed_bar["macdhist"]),
+            "Volume Support (>=80% SMA20)": closed_bar["volume"] >= (closed_bar["vol_sma20"] * 0.80)
+        }
+
+        short_checklist = {
+            "BTC Macro Trend Bearish": (pair == settings.BTC_PAIR or btc_trend == "BEARISH"),
+            "1D Trend Confluence (< 50 EMA)": is_1d_bearish,
+            "Price < EMA50 (Trend Alignment)": closed_bar["close"] < closed_bar["ema50"],
+            "ADX >= 20 (Non-Choppy Market)": closed_bar["adx"] >= 20.0,
+            "RSI in Breakdown Zone (40-62)": (40 <= closed_bar["rsi"] <= 62),
+            "MACD Momentum Negative": (closed_bar["macdhist"] < 0 and closed_bar["macdhist"] < prior_closed_bar["macdhist"]),
+            "Volume Support (>=80% SMA20)": closed_bar["volume"] >= (closed_bar["vol_sma20"] * 0.80)
+        }
+
+        long_non_macd = [v for k, v in long_checklist.items() if "MACD" not in k]
+        short_non_macd = [v for k, v in short_checklist.items() if "MACD" not in k]
+
+        if all(long_checklist.values()):
+            direction = "LONG"
+            is_high_risk_macd = False
+            active_checklist = long_checklist.copy()
+        elif all(long_non_macd) and not long_checklist["MACD Momentum Positive"]:
+            direction = "LONG"
+            is_high_risk_macd = True
+            active_checklist = long_checklist.copy()
+        elif all(short_checklist.values()):
+            direction = "SHORT"
+            is_high_risk_macd = False
+            active_checklist = short_checklist.copy()
+        elif all(short_non_macd) and not short_checklist["MACD Momentum Negative"]:
+            direction = "SHORT"
+            is_high_risk_macd = True
+            active_checklist = short_checklist.copy()
+        else:
+            active_checklist = None
+
+        if direction:
+            # 1H Confluence Validation Gate
+            ltf_aligned = True
+            if tf in ["4h", "8h"]:
+                if direction == "LONG" and not ltf_1h_bullish:
+                    ltf_aligned = False
+                elif direction == "SHORT" and not ltf_1h_bearish:
+                    ltf_aligned = False
+
+            if direction == "LONG":
+                sl = swing_low - (0.5 * atr)
+                risk_distance = live_entry - sl
+                tp = live_entry + max(2.5 * risk_distance, 2.5 * atr)
+                liq_price = calculate_liquidation_price(live_entry, leverage, "LONG")
+                total_liq_dist = live_entry - liq_price
+                sl_dist = live_entry - sl
+                safe_clearance = (sl > liq_price) and (sl_dist <= total_liq_dist * 0.60)
+                active_checklist["Liquidation Buffer (SL >= 40% Above Liq)"] = safe_clearance
+            else:
+                sl = swing_high + (0.5 * atr)
+                risk_distance = sl - live_entry
+                tp = live_entry - max(2.5 * risk_distance, 2.5 * atr)
+                liq_price = calculate_liquidation_price(live_entry, leverage, "SHORT")
+                total_liq_dist = liq_price - live_entry
+                sl_dist = sl - live_entry
+                safe_clearance = (sl < liq_price) and (sl_dist <= total_liq_dist * 0.60)
+                active_checklist["Liquidation Buffer (SL >= 40% Below Liq)"] = safe_clearance
+
+            base_passed = all([v for k, v in active_checklist.items() if ("MACD" not in k or not is_high_risk_macd)])
+            
+            if base_passed and ltf_aligned:
+                position_notional = allocated_margin * leverage
+                pct_price_move = abs(tp - live_entry) / live_entry
+                commission = position_notional * (settings.COINDCX_TAKER_FEE * 2)
+                gross_profit = position_notional * pct_price_move
+                net_profit = gross_profit - commission
+                net_roi = net_profit / allocated_margin
+                total_account_growth = net_profit / capital
+
+                if net_roi >= settings.MIN_PROFIT_ROI:
+                    candidate_trades.append({
+                        "Coin Pair": clean_pair,
+                        "Timeframe": tf,
+                        "Direction": direction,
+                        "Entry Price": live_entry,
+                        "Margin to Enter": allocated_margin,
+                        "Leverage": leverage,
+                        "Take Profit": tp,
+                        "Stop Loss": sl,
+                        "Est. Liquidation": liq_price,
+                        "CoinDCX Fee Est.": commission,
+                        "Expected Net Profit": net_profit,
+                        "Trade Net ROI": net_roi,
+                        "Total Account Growth": total_account_growth,
+                        "roi_num": net_roi,
+                        "auto_trade": not is_high_risk_macd,
+                        "warning": "This trade has high risk as MACD check failed." if is_high_risk_macd else None,
+                        "checklist": active_checklist,
+                        "indicator_values": {
+                            "ema20": closed_bar["ema20"],
+                            "ema50": closed_bar["ema50"],
+                            "ema200": closed_bar.get("ema200"),
+                            "rsi": closed_bar["rsi"],
+                            "macd_hist": closed_bar["macdhist"],
+                            "adx": closed_bar["adx"],
+                            "atr": atr
+                        }
+                    })
+
+    return candidate_trades
+
+
+async def evaluate_all_markets(capital: float, coins: list = None, user_timeframes: list = None):
+    """Evaluate all markets and aggregate results"""
+    if coins is None:
+        coins = settings.DEFAULT_COINS
+    
+    btc_trend = await get_btc_macro_trend()
+
+    raw_candidates = []
+    for coin in coins:
+        trades = await evaluate_pair(coin, capital, btc_trend, user_timeframes)
+        raw_candidates.extend(trades)
+
+    # Grouped Timeframe Aggregation
+    grouped_by_coin = {}
+    for trade in raw_candidates:
+        symbol = trade["Coin Pair"]
+        if symbol not in grouped_by_coin:
+            grouped_by_coin[symbol] = []
+        grouped_by_coin[symbol].append(trade)
+
+    final_candidates = []
+    for symbol, setups in grouped_by_coin.items():
+        best_setup = max(setups, key=lambda x: x["roi_num"]).copy()
+        
+        all_tfs = [s["Timeframe"] for s in setups]
+        unique_tfs = []
+        for tf in ["4h", "8h", "1d"]:
+            if tf in all_tfs and tf not in unique_tfs:
+                unique_tfs.append(tf)
+
+        if len(unique_tfs) > 1:
+            best_setup["Timeframe"] = ", ".join(unique_tfs)
+
+        final_candidates.append(best_setup)
+
+    final_candidates.sort(key=lambda x: x["roi_num"], reverse=True)
+    return final_candidates
+
+
+
+D:\Devin\Crypto-App\backend\app\models
+
+__init__.py
+
+otp.py
+------
+
+from sqlalchemy import Column, Integer, String, DateTime, Boolean
+from sqlalchemy.sql import func
+from app.core.database import Base
+
+
+class OTP(Base):
+    __tablename__ = "otps"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String, index=True, nullable=False)
+    otp_code = Column(String, nullable=False)
+    is_used = Column(Boolean, default=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+
+
+scanner_log.py
+--------------
+
+from sqlalchemy import Column, Integer, String, DateTime, JSON, Float
+from sqlalchemy.sql import func
+from app.core.database import Base
+
+
+class ScannerLog(Base):
+    __tablename__ = "scanner_logs"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, nullable=False, index=True)
+    
+    coin_pair = Column(String, nullable=False)
+    timeframe = Column(String, nullable=False)
+    
+    # Analysis Results
+    trend_status = Column(String, nullable=True)  # BULLISH, BEARISH, NEUTRAL
+    signal_detected = Column(String, nullable=True)  # LONG, SHORT, NONE
+    checklist_passed = Column(JSON, nullable=True)
+    
+    # Indicator Values
+    ema20 = Column(Float, nullable=True)
+    ema50 = Column(Float, nullable=True)
+    ema200 = Column(Float, nullable=True)
+    rsi = Column(Float, nullable=True)
+    macd_hist = Column(Float, nullable=True)
+    adx = Column(Float, nullable=True)
+    atr = Column(Float, nullable=True)
+    
+    # Metadata
+    scan_time = Column(DateTime(timezone=True), server_default=func.now())
+    cycle_number = Column(Integer, nullable=True)
+
+
+telegram_signal.py
+------------------
+
+from sqlalchemy import Column, Integer, String, Text, DateTime, JSON, Boolean, Float
+from sqlalchemy.sql import func
+from app.core.database import Base
+
+
+class TelegramSignal(Base):
+    __tablename__ = "telegram_signals"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, nullable=False, index=True)
+    
+    # Parsed Signal Data
+    coin_pair = Column(String, nullable=True)
+    direction = Column(String, nullable=True)  # LONG, SHORT
+    leverage = Column(String, nullable=True)
+    entry_zone = Column(String, nullable=True)
+    take_profit_targets = Column(JSON, nullable=True)  # List of TP levels
+    stop_loss = Column(String, nullable=True)
+    
+    # Raw Message
+    channel_name = Column(String, nullable=True)
+    channel_id = Column(String, nullable=True)
+    message_id = Column(Integer, nullable=True)
+    raw_message = Column(Text, nullable=True)
+    
+    # AI Analysis
+    ai_verdict = Column(String, nullable=True)  # APPROVED, REJECTED, NEUTRAL
+    ai_reasoning = Column(Text, nullable=True)
+    ai_confidence = Column(Float, nullable=True)
+    
+    # Market Context at Signal Time
+    market_trend = Column(String, nullable=True)
+    indicator_confluence = Column(JSON, nullable=True)
+    
+    # Status
+    is_processed = Column(Boolean, default=False)
+    is_executed = Column(Boolean, default=False)
+    trade_id = Column(Integer, nullable=True)
+    
+    received_at = Column(DateTime(timezone=True), server_default=func.now())
+    processed_at = Column(DateTime(timezone=True), nullable=True)
+
+
+
+trade.py
+--------
+
+from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, Text, JSON
+from sqlalchemy.sql import func
+from app.core.database import Base
+
+
+class Trade(Base):
+    __tablename__ = "trades"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, nullable=False, index=True)
+    
+    # Trade Details
+    coin_pair = Column(String, nullable=False)
+    direction = Column(String, nullable=False)  # LONG or SHORT
+    entry_price = Column(Float, nullable=False)
+    leverage = Column(Integer, nullable=False)
+    margin_used = Column(Float, nullable=False)
+    
+    # Targets
+    take_profit = Column(Float, nullable=False)
+    stop_loss = Column(Float, nullable=False)
+    liquidation_price = Column(Float, nullable=False)
+    
+    # Execution
+    expected_net_roi = Column(Float, nullable=False)
+    timeframe = Column(String, nullable=False)
+    
+    # Status
+    status = Column(String, default="OPEN")  # OPEN, CLOSED, CANCELLED
+    exit_price = Column(Float, nullable=True)
+    exit_reason = Column(String, nullable=True)  # TP, SL, MANUAL, EARLY_EXIT
+    pnl = Column(Float, nullable=True)
+    pnl_percentage = Column(Float, nullable=True)
+    
+    # Metadata
+    entry_time = Column(DateTime(timezone=True), server_default=func.now())
+    exit_time = Column(DateTime(timezone=True), nullable=True)
+    signal_source = Column(String, nullable=True)  # SCANNER, TELEGRAM, MANUAL
+    ai_verdict = Column(Text, nullable=True)
+    is_high_risk = Column(Boolean, default=False)
+    
+    # CoinDCX Order IDs
+    coindcx_order_id = Column(String, nullable=True)
+    coindcx_position_id = Column(String, nullable=True)
+
+
+class TradeLog(Base):
+    __tablename__ = "trade_logs"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, nullable=False, index=True)
+    trade_id = Column(Integer, nullable=True, index=True)
+    
+    log_type = Column(String, nullable=False)  # SCAN, SIGNAL, ENTRY, EXIT, ALERT
+    message = Column(Text, nullable=False)
+    metadata = Column(JSON, nullable=True)
+    
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+
+user.py
+-------
+
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Float, Text, JSON
+from sqlalchemy.sql import func
+from app.core.database import Base
+
+
+class User(Base):
+    __tablename__ = "users"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String, unique=True, index=True, nullable=False)
+    hashed_password = Column(String, nullable=False)
+    name = Column(String, nullable=True)
+    experience_level = Column(String, nullable=True)  # Beginner, Intermediate, Pro
+    
+    # Encrypted CoinDCX Credentials
+    encrypted_coindcx_api_key = Column(Text, nullable=True)
+    encrypted_coindcx_api_secret = Column(Text, nullable=True)
+    
+    # Margin Settings
+    custom_margin_allocation = Column(Float, nullable=True)  # If None, use 20-25% of balance
+    scan_interval_minutes = Column(Integer, default=5)  # 3, 5, 7, 10, 15, 30
+    
+    # AI Settings
+    ai_provider = Column(String, default="None")  # None, Gemini, Copilot, OpenAI
+    encrypted_ai_api_key = Column(Text, nullable=True)
+    ai_enabled = Column(Boolean, default=False)
+    
+    # Telegram Settings
+    telegram_api_id = Column(String, nullable=True)
+    telegram_api_hash = Column(Text, nullable=True)
+    telegram_channels = Column(JSON, nullable=True)  # List of channel IDs/usernames
+    
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    last_login = Column(DateTime(timezone=True), nullable=True)
+    
+    # Status
+    is_active = Column(Boolean, default=True)
+    is_verified = Column(Boolean, default=False)
+    
+    # Legal Terms
+    terms_accepted = Column(Boolean, default=False, nullable=False)
+    terms_accepted_at = Column(DateTime(timezone=True), nullable=True)
+
+
+
+
+D:\Devin\Crypto-App\backend\app\schemas
+
+__init__.py
+
+scanner.py
+----------
+
+from pydantic import BaseModel
+from typing import Optional, List
+from datetime import datetime
+
+
+class ScannerLogResponse(BaseModel):
+    id: int
+    user_id: int
+    coin_pair: str
+    timeframe: str
+    trend_status: Optional[str]
+    signal_detected: Optional[str]
+    checklist_passed: Optional[dict]
+    ema20: Optional[float]
+    ema50: Optional[float]
+    ema200: Optional[float]
+    rsi: Optional[float]
+    macd_hist: Optional[float]
+    adx: Optional[float]
+    atr: Optional[float]
+    scan_time: datetime
+    cycle_number: Optional[int]
+    
+    class Config:
+        from_attributes = True
+
+
+class SingleCoinCheckRequest(BaseModel):
+    coin_pair: str
+
+
+class CoinAnalysisResult(BaseModel):
+    coin_pair: str
+    timeframes: List[dict]
+    overall_signal: Optional[str]
+    best_timeframe: Optional[str]
+    entry_price: Optional[float]
+    take_profit: Optional[float]
+    stop_loss: Optional[float]
+    leverage: Optional[int]
+    expected_roi: Optional[float]
+
+
+
+settings.py
+-----------
+
+from pydantic import BaseModel, Field
+from typing import Optional, List
+
+
+class CoinDCXSettings(BaseModel):
+    api_key: str
+    api_secret: str
+
+
+class MarginSettings(BaseModel):
+    custom_margin_allocation: Optional[float] = Field(None, ge=0)
+    scan_interval_minutes: int = Field(5, ge=3, le=30)
+
+
+class AISettings(BaseModel):
+    provider: str = Field("None", pattern="^(None|Gemini|Copilot|OpenAI)$")
+    api_key: Optional[str] = None
+
+
+class TelegramSettings(BaseModel):
+    api_id: Optional[str] = None
+    api_hash: Optional[str] = None
+    channels: Optional[List[str]] = None
+
+
+class UserSettingsUpdate(BaseModel):
+    coindcx: Optional[CoinDCXSettings] = None
+    margin: Optional[MarginSettings] = None
+    ai: Optional[AISettings] = None
+    telegram: Optional[TelegramSettings] = None
+
+
+class AIKeyVerify(BaseModel):
+    provider: str = Field(..., pattern="^(Gemini|Copilot|OpenAI)$")
+    api_key: str
+
+
+
+
+trade.py
+--------
+
+from pydantic import BaseModel
+from typing import Optional
+from datetime import datetime
+
+
+class TradeResponse(BaseModel):
+    id: int
+    user_id: int
+    coin_pair: str
+    direction: str
+    entry_price: float
+    leverage: int
+    margin_used: float
+    take_profit: float
+    stop_loss: float
+    liquidation_price: float
+    expected_net_roi: float
+    timeframe: str
+    status: str
+    exit_price: Optional[float]
+    exit_reason: Optional[str]
+    pnl: Optional[float]
+    pnl_percentage: Optional[float]
+    entry_time: datetime
+    exit_time: Optional[datetime]
+    signal_source: Optional[str]
+    ai_verdict: Optional[str]
+    is_high_risk: bool
+    
+    class Config:
+        from_attributes = True
+
+
+class ManualCloseRequest(BaseModel):
+    trade_id: int
+
+
+class TradeStats(BaseModel):
+    total_trades: int
+    win_count: int
+    loss_count: int
+    win_rate: float
+    net_pnl: float
+
+
+user.py
+-------
+
+from pydantic import BaseModel, EmailStr, Field
+from typing import Optional
+from datetime import datetime
+
+
+class UserBase(BaseModel):
+    email: EmailStr
+    name: Optional[str] = None
+    experience_level: Optional[str] = Field(None, pattern="^(Beginner|Intermediate|Pro)$")
+
+
+class UserCreate(UserBase):
+    password: str = Field(..., min_length=8)
+
+
+class UserLogin(BaseModel):
+    email: EmailStr
+    password: str
+
+
+class UserUpdate(BaseModel):
+    name: Optional[str] = None
+    experience_level: Optional[str] = Field(None, pattern="^(Beginner|Intermediate|Pro)$")
+
+
+class UserResponse(BaseModel):
+    id: int
+    email: str
+    name: Optional[str]
+    experience_level: Optional[str]
+    created_at: datetime
+    is_active: bool
+    is_verified: bool
+    
+    class Config:
+        from_attributes = True
+
+
+class OTPRequest(BaseModel):
+    email: EmailStr
+
+
+class OTPVerify(BaseModel):
+    email: EmailStr
+    otp_code: str = Field(..., min_length=6, max_length=6)
+    password: str = Field(..., min_length=8)
+    name: Optional[str] = None
+    experience_level: Optional[str] = Field(None, pattern="^(Beginner|Intermediate|Pro)$")
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: UserResponse
+
+
+
+
+D:\Devin\Crypto-App\backend\app\services
+
+__init__.py
+
+ai_service.py
+-------------
+
+import httpx
+import json
+from typing import Optional, Dict
+from app.core.config import settings
+
+
+class AIService:
+    """AI service for trade analysis and signal validation with structured JSON output"""
+    
+    # Default models
+    DEFAULT_GEMINI_MODEL = "gemini-1.5-flash"
+    DEFAULT_OPENAI_MODEL = "gpt-4o-mini"
+    
+    @staticmethod
+    async def analyze_signal(
+        provider: str,
+        api_key: str,
+        signal: Dict,
+        market_context: Dict
+    ) -> Dict:
+        """
+        Analyze a trading signal using AI with strict JSON schema enforcement
+        Returns: {verdict: "APPROVED"|"REJECTED", confidence: float, reason: str}
+        """
+        
+        prompt = f"""
+        You are a professional cryptocurrency trading analyst. Evaluate the following trading signal:
+        
+        SIGNAL DETAILS:
+        - Coin Pair: {signal.get('coin_pair')}
+        - Direction: {signal.get('direction')}
+        - Leverage: {signal.get('leverage')}
+        - Entry Zone: {signal.get('entry_zone')}
+        - Take Profit: {signal.get('take_profit_targets')}
+        - Stop Loss: {signal.get('stop_loss')}
+        
+        CURRENT MARKET CONTEXT:
+        - BTC Trend: {market_context.get('btc_trend')}
+        - Coin 1D Trend: {market_context.get('coin_1d_trend')}
+        - Coin 1H Trend: {market_context.get('coin_1h_trend')}
+        - RSI: {market_context.get('rsi')}
+        - MACD Histogram: {market_context.get('macd_hist')}
+        - ADX: {market_context.get('adx')}
+        - EMA50: {market_context.get('ema50')}
+        - EMA200: {market_context.get('ema200')}
+        
+        TASK:
+        1. Analyze if the signal aligns with current market structure
+        2. Check if the direction matches the multi-timeframe trend
+        3. Evaluate risk-reward based on entry, TP, and SL
+        4. Consider overall market conditions
+        
+        Return ONLY valid JSON with this exact schema:
+        {{
+            "verdict": "APPROVE" or "REJECT",
+            "confidence": 85,
+            "reason": "Detailed institutional reason based on EMA/MACD/RSI confluence..."
+        }}
+        """
+        
+        if provider == "OpenAI":
+            return await AIService._call_openai(api_key, prompt)
+        elif provider == "Gemini":
+            return await AIService._call_gemini(api_key, prompt)
+        elif provider == "Copilot":
+            return await AIService._call_copilot(api_key, prompt)
+        else:
+            return {
+                "verdict": "REJECT",
+                "confidence": 0,
+                "reason": "AI provider not configured"
+            }
+    
+    @staticmethod
+    async def _call_openai(api_key: str, prompt: str) -> Dict:
+        """Call OpenAI API with structured JSON output"""
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(
+                    "https://api.openai.com/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "model": AIService.DEFAULT_OPENAI_MODEL,
+                        "messages": [{"role": "user", "content": prompt}],
+                        "max_tokens": 500,
+                        "temperature": 0.7,
+                        "response_format": {"type": "json_object"}
+                    }
+                )
+                
+                if response.status_code == 200:
+                    result = response.json()
+                    content = result["choices"][0]["message"]["content"]
+                    return AIService._parse_json_response(content)
+                else:
+                    return {
+                        "verdict": "REJECT",
+                        "confidence": 0,
+                        "reason": f"OpenAI API error: {response.status_code}"
+                    }
+        except Exception as e:
+            return {
+                "verdict": "REJECT",
+                "confidence": 0,
+                "reason": f"OpenAI call failed: {str(e)}"
+            }
+    
+    @staticmethod
+    async def _call_gemini(api_key: str, prompt: str) -> Dict:
+        """Call Google Gemini API with structured JSON output"""
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(
+                    f"https://generativelanguage.googleapis.com/v1beta/models/{AIService.DEFAULT_GEMINI_MODEL}:generateContent?key={api_key}",
+                    json={
+                        "contents": [{"parts": [{"text": prompt}]}],
+                        "generationConfig": {
+                            "temperature": 0.7,
+                            "maxOutputTokens": 500,
+                            "response_mime_type": "application/json"
+                        }
+                    }
+                )
+                
+                if response.status_code == 200:
+                    result = response.json()
+                    content = result["candidates"][0]["content"]["parts"][0]["text"]
+                    return AIService._parse_json_response(content)
+                else:
+                    return {
+                        "verdict": "REJECT",
+                        "confidence": 0,
+                        "reason": f"Gemini API error: {response.status_code}"
+                    }
+        except Exception as e:
+            return {
+                "verdict": "REJECT",
+                "confidence": 0,
+                "reason": f"Gemini call failed: {str(e)}"
+            }
+    
+    @staticmethod
+    async def _call_copilot(api_key: str, prompt: str) -> Dict:
+        """Call Microsoft Copilot API (placeholder - needs specific endpoint)"""
+        return {
+            "verdict": "REJECT",
+            "confidence": 0,
+            "reason": "Copilot integration not yet implemented"
+        }
+    
+    @staticmethod
+    def _parse_json_response(content: str) -> Dict:
+        """Parse JSON response from AI"""
+        try:
+            parsed = json.loads(content)
+            
+            # Normalize verdict to match expected format
+            verdict = parsed.get("verdict", "REJECT").upper()
+            if verdict == "APPROVED":
+                verdict = "APPROVE"
+            elif verdict not in ["APPROVE", "REJECT"]:
+                verdict = "REJECT"
+            
+            return {
+                "verdict": verdict,
+                "confidence": int(parsed.get("confidence", 50)),
+                "reason": parsed.get("reason", "No reasoning provided")
+            }
+        except json.JSONDecodeError:
+            # Fallback to regex parsing if JSON fails
+            import re
+            verdict = "REJECT"
+            reason = content
+            confidence = 50
+            
+            verdict_match = re.search(r'["\']?verdict["\']?\s*:\s*["\']?(APPROVE|REJECT|APPROVED|REJECTED)["\']?', content, re.IGNORECASE)
+            if verdict_match:
+                verdict = verdict_match.group(1).upper()
+                if verdict == "APPROVED":
+                    verdict = "APPROVE"
+                elif verdict == "REJECTED":
+                    verdict = "REJECT"
+            
+            reason_match = re.search(r'["\']?reason["\']?\s*:\s*["\']?([^"\']+)["\']?', content, re.DOTALL)
+            if reason_match:
+                reason = reason_match.group(1).strip()
+            
+            confidence_match = re.search(r'["\']?confidence["\']?\s*:\s*(\d+)', content)
+            if confidence_match:
+                confidence = int(confidence_match.group(1))
+            
+            return {
+                "verdict": verdict,
+                "confidence": confidence,
+                "reason": reason
+            }
+
+
+
+auth_service.py
+---------------
+
+
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from datetime import datetime
+from typing import Optional
+from app.models.user import User
+from app.models.otp import OTP
+from app.core.security import verify_password, get_password_hash, create_access_token
+from app.services.email_service import generate_otp, send_otp_email, get_otp_expiry
+
+
+async def create_otp(db: AsyncSession, email: str) -> bool:
+    """Create and send OTP for email verification"""
+    # Delete any existing unused OTPs for this email
+    await db.execute(
+        select(OTP).where(OTP.email == email, OTP.is_used == False)
+    )
+    result = await db.execute(
+        select(OTP).where(OTP.email == email, OTP.is_used == False)
+    )
+    existing_otps = result.scalars().all()
+    for otp in existing_otps:
+        otp.is_used = True
+    
+    # Generate new OTP
+    otp_code = generate_otp()
+    new_otp = OTP(
+        email=email,
+        otp_code=otp_code,
+        expires_at=get_otp_expiry()
+    )
+    db.add(new_otp)
+    await db.commit()
+    
+    # Send email
+    return await send_otp_email(email, otp_code)
+
+
+async def verify_otp_and_register(
+    db: AsyncSession,
+    email: str,
+    otp_code: str,
+    password: str,
+    name: Optional[str] = None,
+    experience_level: Optional[str] = None
+) -> Optional[User]:
+    """Verify OTP and register new user"""
+    # Find valid OTP
+    result = await db.execute(
+        select(OTP).where(
+            OTP.email == email,
+            OTP.otp_code == otp_code,
+            OTP.is_used == False,
+            OTP.expires_at > datetime.utcnow()
+        )
+    )
+    otp = result.scalar_one_or_none()
+    
+    if not otp:
+        return None
+    
+    # Mark OTP as used
+    otp.is_used = True
+    
+    # Check if user already exists
+    existing_user = await db.execute(
+        select(User).where(User.email == email)
+    )
+    if existing_user.scalar_one_or_none():
+        await db.commit()
+        return None
+    
+    # Create new user
+    user = User(
+        email=email,
+        hashed_password=get_password_hash(password),
+        name=name,
+        experience_level=experience_level,
+        is_verified=True
+    )
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
+    
+    return user
+
+
+async def authenticate_user(db: AsyncSession, email: str, password: str) -> Optional[User]:
+    """Authenticate user with email and password"""
+    result = await db.execute(
+        select(User).where(User.email == email, User.is_active == True)
+    )
+    user = result.scalar_one_or_none()
+    
+    if not user or not verify_password(password, user.hashed_password):
+        return None
+    
+    # Update last login
+    user.last_login = datetime.utcnow()
+    await db.commit()
+    
+    return user
+
+
+async def login_user(db: AsyncSession, email: str, password: str) -> Optional[dict]:
+    """Login user and return access token"""
+    user = await authenticate_user(db, email, password)
+    if not user:
+        return None
+    
+    token_data = {"sub": str(user.id), "email": user.email}
+    access_token = create_access_token(token_data)
+    
+    return {
+        "access_token": access_token,
+        "user": user
+    }
+
+
+
+
+coindcx_executor.py
+
+
+import httpx
+import hmac
+import hashlib
+import time
+import json
+from typing import Dict, Optional, List
+from app.core.config import settings
+from app.core.encryption import decrypt_data
+
+
+class CoinDCXExecutor:
+    """Execute trades on CoinDCX Futures"""
+    
+    def __init__(self, api_key: str, api_secret: str):
+        self.api_key = api_key
+        self.api_secret = api_secret
+        self.base_url = settings.COINDCX_BASE_URL
+    
+    def _generate_signature(self, payload: Dict) -> str:
+        """Generate HMAC SHA256 signature for CoinDCX API"""
+        payload_str = json.dumps(payload, separators=(',', ':'))
+        signature = hmac.new(
+            self.api_secret.encode(),
+            payload_str.encode(),
+            hashlib.sha256
+        ).hexdigest()
+        return signature
+    
+    async def _make_request(
+        self,
+        method: str,
+        endpoint: str,
+        payload: Optional[Dict] = None
+    ) -> Optional[Dict]:
+        """Make authenticated request to CoinDCX API"""
+        try:
+            url = f"{self.base_url}{endpoint}"
+            headers = {
+                "Content-Type": "application/json",
+                "X-AUTH-APIKEY": self.api_key
+            }
+            
+            if payload:
+                timestamp = int(time.time() * 1000)
+                payload["timestamp"] = timestamp
+                signature = self._generate_signature(payload)
+                headers["X-AUTH-SIGNATURE"] = signature
+            
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                if method == "GET":
+                    response = await client.get(url, headers=headers)
+                elif method == "POST":
+                    response = await client.post(url, headers=headers, json=payload)
+                elif method == "DELETE":
+                    response = await client.delete(url, headers=headers, json=payload)
+                else:
+                    return None
+                
+                if response.status_code == 200:
+                    return response.json()
+                else:
+                    print(f"CoinDCX API Error: {response.status_code} - {response.text}")
+                    return None
+        except Exception as e:
+            print(f"CoinDCX Request Failed: {e}")
+            return None
+    
+    async def get_futures_balance(self) -> Optional[Dict]:
+        """Get futures account balance"""
+        payload = {}
+        result = await self._make_request("GET", "/exchange/v1/derivatives/futures/balance", payload)
+        return result
+    
+    async def get_open_positions(self) -> Optional[List[Dict]]:
+        """Get all open futures positions"""
+        payload = {}
+        result = await self._make_request("GET", "/exchange/v1/derivatives/futures/positions", payload)
+        if result and isinstance(result, list):
+            return result
+        return None
+    
+    async def place_market_order(
+        self,
+        symbol: str,
+        side: str,  # "buy" or "sell"
+        quantity: float,
+        leverage: Optional[int] = None
+    ) -> Optional[Dict]:
+        """Place a market order on CoinDCX Futures"""
+        payload = {
+            "symbol": symbol,
+            "side": side,
+            "order_type": "market_order",
+            "quantity": quantity,
+            "leverage": leverage
+        }
+        
+        result = await self._make_request("POST", "/exchange/v1/derivatives/futures/orders/create", payload)
+        return result
+    
+    async def place_limit_order(
+        self,
+        symbol: str,
+        side: str,
+        quantity: float,
+        price: float,
+        leverage: Optional[int] = None
+    ) -> Optional[Dict]:
+        """Place a limit order with TP/SL"""
+        payload = {
+            "symbol": symbol,
+            "side": side,
+            "order_type": "limit_order",
+            "price_per_unit": price,
+            "quantity": quantity,
+            "leverage": leverage
+        }
+        
+        result = await self._make_request("POST", "/exchange/v1/derivatives/futures/orders/create", payload)
+        return result
+    
+    async def place_order_with_tp_sl(
+        self,
+        symbol: str,
+        side: str,
+        quantity: float,
+        leverage: int,
+        take_profit: float,
+        stop_loss: float
+    ) -> Optional[Dict]:
+        """Place order with take profit and stop loss"""
+        # CoinDCX may require separate orders for TP/SL
+        # This is a simplified implementation
+        payload = {
+            "symbol": symbol,
+            "side": side,
+            "order_type": "market_order",
+            "quantity": quantity,
+            "leverage": leverage
+        }
+        
+        result = await self._make_request("POST", "/exchange/v1/derivatives/futures/orders/create", payload)
+        
+        if result and result.get("order"):
+            # After order fills, place TP and SL orders
+            order_id = result["order"]["id"]
+            # Implementation would place TP/SL orders here
+            pass
+        
+        return result
+    
+    async def cancel_order(self, order_id: str, symbol: str) -> Optional[Dict]:
+        """Cancel an order"""
+        payload = {
+            "id": order_id,
+            "symbol": symbol
+        }
+        result = await self._make_request("DELETE", "/exchange/v1/derivatives/futures/orders/cancel", payload)
+        return result
+    
+    async def close_position(self, symbol: str, quantity: float) -> Optional[Dict]:
+        """Close a position with market order"""
+        # Determine side based on current position
+        positions = await self.get_open_positions()
+        if positions:
+            for pos in positions:
+                if pos.get("symbol") == symbol:
+                    current_side = pos.get("side")
+                    close_side = "sell" if current_side == "buy" else "buy"
+                    return await self.place_market_order(symbol, close_side, quantity)
+        
+        return None
+
+
+async def get_user_executor(user) -> Optional[CoinDCXExecutor]:
+    """Get CoinDCX executor for a user with decrypted credentials"""
+    if not user.encrypted_coindcx_api_key or not user.encrypted_coindcx_api_secret:
+        return None
+    
+    try:
+        api_key = decrypt_data(user.encrypted_coindcx_api_key)
+        api_secret = decrypt_data(user.encrypted_coindcx_api_secret)
+        return CoinDCXExecutor(api_key, api_secret)
+    except Exception as e:
+        print(f"Failed to decrypt CoinDCX credentials: {e}")
+        return None
+
+
+
+email_service.py
+----------------
+
+import random
+import aiosmtplib
+from email.message import EmailMessage
+from datetime import datetime, timedelta
+from typing import Optional
+from app.core.config import settings
+
+
+def generate_otp() -> str:
+    """Generate a 6-digit OTP code"""
+    return str(random.randint(100000, 999999))
+
+
+async def send_otp_email(email: str, otp_code: str) -> bool:
+    """Send OTP email via SMTP"""
+    try:
+        message = EmailMessage()
+        message["From"] = settings.SMTP_EMAIL
+        message["To"] = email
+        message["Subject"] = "Your Crypto Trading Platform Verification Code"
+        
+        body = f"""
+        <html>
+        <body>
+            <h2>Crypto Trading Platform - Email Verification</h2>
+            <p>Your verification code is:</p>
+            <h1 style="color: #4CAF50; font-size: 32px; letter-spacing: 5px;">{otp_code}</h1>
+            <p>This code will expire in 10 minutes.</p>
+            <p>If you didn't request this code, please ignore this email.</p>
+            <hr>
+            <p style="color: #666; font-size: 12px;">
+                This is an automated message from Crypto Trading Platform. 
+                Please do not reply to this email.
+            </p>
+        </body>
+        </html>
+        """
+        message.set_content(body, subtype="html")
+        
+        await aiosmtplib.send(
+            message,
+            hostname=settings.SMTP_HOST,
+            port=settings.SMTP_PORT,
+            username=settings.SMTP_EMAIL,
+            password=settings.SMTP_PASSWORD,
+            start_tls=True,
+            timeout=10
+        )
+        return True
+    except Exception as e:
+        print(f"Failed to send OTP email: {e}")
+        return False
+
+
+def get_otp_expiry() -> datetime:
+    """Get OTP expiry time (10 minutes from now)"""
+    return datetime.utcnow() + timedelta(minutes=10)
+
+
+
+position_tracker.py
+-------------------
+
+
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, and_
+from datetime import datetime, timedelta
+from typing import List, Optional
+from app.models.trade import Trade, TradeLog
+from app.models.user import User
+from app.core.market_data import fetch_current_price
+from app.core.indicators import calculate_all_indicators
+from app.core.market_data import fetch_raw_candles
+import pandas as pd
+
+
+class PositionTracker:
+    """Track and manage active trading positions"""
+    
+    @staticmethod
+    async def get_active_positions(db: AsyncSession, user_id: int) -> List[Trade]:
+        """Get all active positions for a user"""
+        result = await db.execute(
+            select(Trade).where(
+                and_(
+                    Trade.user_id == user_id,
+                    Trade.status == "OPEN"
+                )
+            )
+        )
+        return result.scalars().all()
+    
+    @staticmethod
+    async def update_position_pnl(db: AsyncSession, trade: Trade) -> Optional[float]:
+        """Update PnL for a position based on current price"""
+        current_price = await fetch_current_price(trade.coin_pair)
+        if current_price is None:
+            return None
+        
+        if trade.direction == "LONG":
+            pnl_percentage = ((current_price - trade.entry_price) / trade.entry_price) * 100 * trade.leverage
+        else:  # SHORT
+            pnl_percentage = ((trade.entry_price - current_price) / trade.entry_price) * 100 * trade.leverage
+        
+        pnl = (pnl_percentage / 100) * trade.margin_used
+        trade.pnl = pnl
+        trade.pnl_percentage = pnl_percentage
+        
+        await db.commit()
+        return pnl
+    
+    @staticmethod
+    async def check_exit_conditions(db: AsyncSession, trade: Trade) -> Optional[str]:
+        """
+        Check if position should be closed based on:
+        - Take Profit hit
+        - Stop Loss hit
+        - Early exit indicators (EMA50 break, MACD turn)
+        """
+        current_price = await fetch_current_price(trade.coin_pair)
+        if current_price is None:
+            return None
+        
+        # Check TP
+        if trade.direction == "LONG" and current_price >= trade.take_profit:
+            return "TP"
+        elif trade.direction == "SHORT" and current_price <= trade.take_profit:
+            return "TP"
+        
+        # Check SL
+        if trade.direction == "LONG" and current_price <= trade.stop_loss:
+            return "SL"
+        elif trade.direction == "SHORT" and current_price >= trade.stop_loss:
+            return "SL"
+        
+        # Early Exit Indicators (1H timeframe)
+        df_1h = await fetch_raw_candles(trade.coin_pair, interval="1h", limit=100)
+        if df_1h is not None and len(df_1h) >= 50:
+            df_1h = calculate_all_indicators(df_1h)
+            closed_bar = df_1h.iloc[-2]
+            
+            if trade.direction == "LONG":
+                # Check if 1H closed below EMA50
+                if closed_bar["close"] < closed_bar["ema50"]:
+                    return "EARLY_EXIT_EMA50"
+                # Check if MACD turned negative
+                if closed_bar["macdhist"] < 0:
+                    return "EARLY_EXIT_MACD"
+            else:  # SHORT
+                # Check if 1H closed above EMA50
+                if closed_bar["close"] > closed_bar["ema50"]:
+                    return "EARLY_EXIT_EMA50"
+                # Check if MACD turned positive
+                if closed_bar["macdhist"] > 0:
+                    return "EARLY_EXIT_MACD"
+        
+        return None
+    
+    @staticmethod
+    async def close_position(
+        db: AsyncSession,
+        trade: Trade,
+        exit_price: float,
+        exit_reason: str
+    ) -> Trade:
+        """Close a position and record final PnL"""
+        current_price = exit_price if exit_price else await fetch_current_price(trade.coin_pair)
+        
+        if current_price:
+            if trade.direction == "LONG":
+                pnl_percentage = ((current_price - trade.entry_price) / trade.entry_price) * 100 * trade.leverage
+            else:
+                pnl_percentage = ((trade.entry_price - current_price) / trade.entry_price) * 100 * trade.leverage
+            
+            trade.pnl = (pnl_percentage / 100) * trade.margin_used
+            trade.pnl_percentage = pnl_percentage
+        
+        trade.status = "CLOSED"
+        trade.exit_price = current_price
+        trade.exit_reason = exit_reason
+        trade.exit_time = datetime.utcnow()
+        
+        # Log the exit
+        log = TradeLog(
+            user_id=trade.user_id,
+            trade_id=trade.id,
+            log_type="EXIT",
+            message=f"Position closed: {exit_reason}",
+            metadata={
+                "exit_price": current_price,
+                "pnl": trade.pnl,
+                "pnl_percentage": trade.pnl_percentage
+            }
+        )
+        db.add(log)
+        
+        await db.commit()
+        await db.refresh(trade)
+        
+        return trade
+    
+    @staticmethod
+    async def log_trade_event(
+        db: AsyncSession,
+        user_id: int,
+        trade_id: Optional[int],
+        log_type: str,
+        message: str,
+        metadata: Optional[dict] = None
+    ):
+        """Log a trade event"""
+        log = TradeLog(
+            user_id=user_id,
+            trade_id=trade_id,
+            log_type=log_type,
+            message=message,
+            metadata=metadata
+        )
+        db.add(log)
+        await db.commit()
+    
+    @staticmethod
+    async def get_trade_stats(
+        db: AsyncSession,
+        user_id: int,
+        period: str = "today"
+    ) -> dict:
+        """Get trade statistics for a period"""
+        now = datetime.utcnow()
+        
+        if period == "today":
+            start_date = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        elif period == "yesterday":
+            start_date = (now - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+            end_date = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        elif period == "week":
+            start_date = now - timedelta(days=7)
+        elif period == "month":
+            start_date = now - timedelta(days=30)
+        else:
+            start_date = now - timedelta(days=1)
+        
+        result = await db.execute(
+            select(Trade).where(
+                and_(
+                    Trade.user_id == user_id,
+                    Trade.status == "CLOSED",
+                    Trade.exit_time >= start_date
+                )
+            )
+        )
+        
+        if period == "yesterday":
+            result = await db.execute(
+                select(Trade).where(
+                    and_(
+                        Trade.user_id == user_id,
+                        Trade.status == "CLOSED",
+                        Trade.exit_time >= start_date,
+                        Trade.exit_time < end_date
+                    )
+                )
+            )
+        
+        trades = result.scalars().all()
+        
+        total_trades = len(trades)
+        win_count = sum(1 for t in trades if t.pnl and t.pnl > 0)
+        loss_count = sum(1 for t in trades if t.pnl and t.pnl <= 0)
+        win_rate = (win_count / total_trades * 100) if total_trades > 0 else 0
+        net_pnl = sum(t.pnl for t in trades if t.pnl)
+        
+        return {
+            "total_trades": total_trades,
+            "win_count": win_count,
+            "loss_count": loss_count,
+            "win_rate": round(win_rate, 2),
+            "net_pnl": round(net_pnl, 2) if net_pnl else 0
+        }
+
+
+
+telegram_service.py
+-------------------
+
+from telethon import TelegramClient, events
+from telethon.tl.types import Message
+import re
+import asyncio
+import os
+from typing import Optional, Dict, List
+from datetime import datetime
+from app.core.config import settings
+
+
+class TelegramSignalParser:
+    """Parse trading signals from Telegram messages"""
+    
+    @staticmethod
+    def parse_signal(message: str) -> Optional[Dict]:
+        """
+        Extract trading signal components from message text
+        Returns dict with: coin, direction, leverage, entry_zone, take_profits, stop_loss
+        """
+        message = message.upper()
+        
+        # Extract coin pair (e.g., BTC/USDT, BTCUSDT, B-BTC_USDT)
+        coin_pattern = r'([A-Z]{2,10})(?:/USDT|USDT|_USDT|_PERP)'
+        coin_match = re.search(coin_pattern, message)
+        coin = coin_match.group(1) + "_USDT" if coin_match else None
+        
+        # Extract direction
+        direction = None
+        if "LONG" in message or "BUY" in message:
+            direction = "LONG"
+        elif "SHORT" in message or "SELL" in message:
+            direction = "SHORT"
+        
+        # Extract leverage
+        leverage_pattern = r'(\d+)X'
+        leverage_match = re.search(leverage_pattern, message)
+        leverage = leverage_match.group(1) if leverage_match else None
+        
+        # Extract entry zone
+        entry_pattern = r'ENTRY[:\s]*([0-9.,\s-]+)'
+        entry_match = re.search(entry_pattern, message)
+        entry_zone = entry_match.group(1).strip() if entry_match else None
+        
+        # Extract take profit targets
+        tp_pattern = r'TP[:\s]*([0-9.,\s-]+)|TAKE\s*PROFIT[:\s]*([0-9.,\s-]+)'
+        tp_match = re.search(tp_pattern, message)
+        take_profits = []
+        if tp_match:
+            tp_text = tp_match.group(1) or tp_match.group(2)
+            take_profits = [x.strip() for x in tp_text.split(',') if x.strip()]
+        
+        # Extract stop loss
+        sl_pattern = r'SL[:\s]*([0-9.,]+)|STOP\s*LOSS[:\s]*([0-9.,]+)'
+        sl_match = re.search(sl_pattern, message)
+        stop_loss = None
+        if sl_match:
+            stop_loss = sl_match.group(1) or sl_match.group(2)
+        
+        if coin and direction:
+            return {
+                "coin_pair": coin,
+                "direction": direction,
+                "leverage": leverage,
+                "entry_zone": entry_zone,
+                "take_profit_targets": take_profits,
+                "stop_loss": stop_loss,
+                "raw_message": message
+            }
+        
+        return None
+
+
+class TelegramSignalListener:
+    """Listen to Telegram channels for trading signals with multi-tenant session isolation"""
+    
+    def __init__(self, user_id: int, api_id: str, api_hash: str, channels: List[str]):
+        self.user_id = user_id
+        os.makedirs("sessions", exist_ok=True)
+        session_path = os.path.join("sessions", f"user_{user_id}_session")
+        self.client = TelegramClient(session_path, int(api_id), api_hash)
+        
+        # Clean channels - convert to int if possible
+        cleaned_channels = []
+        for ch in channels:
+            try:
+                cleaned_channels.append(int(ch))
+            except ValueError:
+                cleaned_channels.append(ch)
+        self.channels = cleaned_channels
+        self.parser = TelegramSignalParser()
+        self.callback = None
+        self.is_running = False
+    
+    def set_signal_callback(self, callback):
+        """Set callback function to handle parsed signals"""
+        self.callback = callback
+    
+    async def start(self):
+        """Start listening to channels"""
+        if self.is_running:
+            return
+        
+        await self.client.start()
+        self.is_running = True
+        
+        @self.client.on(events.NewMessage(chats=self.channels))
+        async def handle_new_message(event):
+            message = event.message
+            if not message.text:
+                return
+            
+            parsed_signal = self.parser.parse_signal(message.text)
+            if parsed_signal:
+                parsed_signal.update({
+                    "channel_id": str(event.chat_id),
+                    "channel_name": event.chat.title if hasattr(event.chat, 'title') else str(event.chat_id),
+                    "message_id": message.id,
+                    "timestamp": datetime.now().isoformat()
+                })
+                
+                if self.callback:
+                    await self.callback(parsed_signal)
+    
+    async def stop(self):
+        """Stop listening and clean up session"""
+        self.is_running = False
+        await self.client.disconnect()
+        # Optionally clean up session file for security
+        # session_file = os.path.join("sessions", f"user_{self.user_id}_session.session")
+        # if os.path.exists(session_file):
+        #     os.remove(session_file)
+    
+    async def get_channel_history(self, channel: str, limit: int = 100):
+        """Fetch recent messages from a channel"""
+        messages = []
+        async for message in self.client.iter_messages(channel, limit=limit):
+            if message.text:
+                parsed = self.parser.parse_signal(message.text)
+                if parsed:
+                    parsed.update({
+                        "channel_id": str(channel),
+                        "message_id": message.id,
+                        "timestamp": message.date.isoformat() if message.date else None
+                    })
+                    messages.append(parsed)
+        return messages
+
+
+
+schedular.py
+------------
+
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.interval import IntervalTrigger
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from datetime import datetime
+import asyncio
+from typing import Dict, Optional
+from app.core.database import AsyncSessionLocal
+from app.models.user import User
+from app.core.config import settings
+from app.core.strategy import evaluate_all_markets
+from app.core.news_calendar import circuit_breaker
+from app.services.position_tracker import PositionTracker
+from app.services.coindcx_executor import get_user_executor
+from app.models.trade import Trade
+from app.api.v1.websocket import send_system_status, send_trade_update
+
+
+class BackgroundScheduler:
+    """Autonomous background scheduler for periodic tasks"""
+    
+    def __init__(self):
+        self.scheduler = AsyncIOScheduler()
+        self.is_running = False
+    
+    def start(self):
+        """Start the background scheduler"""
+        if not self.is_running:
+            self.scheduler.start()
+            self.is_running = True
+            print("Background scheduler started")
+    
+    def shutdown(self):
+        """Shutdown the background scheduler"""
+        if self.is_running:
+            self.scheduler.shutdown()
+            self.is_running = False
+            print("Background scheduler stopped")
+    
+    def add_job(self, func, trigger, **kwargs):
+        """Add a job to the scheduler"""
+        self.scheduler.add_job(func, trigger, **kwargs)
+    
+    def remove_job(self, job_id: str):
+        """Remove a job from the scheduler"""
+        self.scheduler.remove_job(job_id)
+
+
+# Global scheduler instance
+background_scheduler = BackgroundScheduler()
+
+
+async def market_scan_task():
+    """Periodic market scanning task for all users"""
+    try:
+        async with AsyncSessionLocal() as db:
+            # Get all active users with CoinDCX keys
+            result = await db.execute(
+                select(User).where(
+                    User.is_active == True,
+                    User.encrypted_coindcx_api_key.isnot(None)
+                )
+            )
+            users = result.scalars().all()
+            
+            for user in users:
+                try:
+                    # Check if trading is frozen due to news
+                    frozen_status = circuit_breaker.get_frozen_status_message()
+                    if frozen_status:
+                        await send_system_status(
+                            user.id,
+                            "frozen",
+                            frozen_status
+                        )
+                        continue
+                    
+                    # Get user's capital allocation
+                    capital = user.custom_margin_allocation
+                    if capital is None:
+                        executor = await get_user_executor(user)
+                        if executor:
+                            balance_data = await executor.get_futures_balance()
+                            if balance_data:
+                                total_balance = balance_data.get("balance", 0) or balance_data.get("total_balance", 0)
+                                if total_balance > 0:
+                                    capital = total_balance * 0.225
+                    
+                    if capital is None or capital < 20:
+                        capital = 20.0
+                    
+                    # Run market scan with 1-hour timeframe enabled
+                    candidates = await evaluate_all_markets(
+                        capital=capital,
+                        coins=settings.DEFAULT_COINS,
+                        user_timeframes=["1h", "4h", "8h", "1d"]
+                    )
+                    
+                    # Log candidates (in production, would save to database and notify user)
+                    if candidates:
+                        print(f"Found {len(candidates)} trade candidates for user {user.id}")
+                    
+                except Exception as e:
+                    print(f"Market scan failed for user {user.id}: {e}")
+            
+    except Exception as e:
+        print(f"Market scan task error: {e}")
+
+
+async def position_monitor_task():
+    """Periodic position monitoring and PnL updates"""
+    try:
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(
+                select(Trade).where(Trade.status == "OPEN")
+            )
+            active_trades = result.scalars().all()
+            
+            for trade in active_trades:
+                try:
+                    # Update PnL
+                    await PositionTracker.update_position_pnl(db, trade)
+                    
+                    # Check exit conditions
+                    exit_reason = await PositionTracker.check_exit_conditions(db, trade)
+                    if exit_reason:
+                        # Close position
+                        user_result = await db.execute(select(User).where(User.id == trade.user_id))
+                        user = user_result.scalar_one_or_none()
+                        if user:
+                            executor = await get_user_executor(user)
+                            if executor:
+                                quantity = (trade.margin_used * trade.leverage) / trade.entry_price
+                                await executor.close_position(trade.coin_pair, quantity)
+                        
+                        await PositionTracker.close_position(db, trade, None, exit_reason)
+                        
+                        # Notify user via WebSocket
+                        await send_trade_update(trade.user_id, {
+                            "trade_id": trade.id,
+                            "status": "CLOSED",
+                            "exit_reason": exit_reason,
+                            "pnl": trade.pnl,
+                            "pnl_percentage": trade.pnl_percentage
+                        })
+                
+                except Exception as e:
+                    print(f"Position monitor failed for trade {trade.id}: {e}")
+            
+    except Exception as e:
+        print(f"Position monitor task error: {e}")
+
+
+async def news_calendar_update_task():
+    """Periodic news calendar update"""
+    try:
+        # Fetch upcoming economic events
+        await circuit_breaker.fetch_economic_calendar(days_ahead=7)
+        print("News calendar updated")
+        
+    except Exception as e:
+        print(f"News calendar update error: {e}")
+
+
+async def user_specific_scan_task(user_id: int):
+    """User-specific market scan task"""
+    try:
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(
+                select(User).where(User.id == user_id)
+            )
+            user = result.scalar_one_or_none()
+            
+            if not user or not user.encrypted_coindcx_api_key:
+                return
+            
+            # Check scan interval
+            interval_minutes = user.scan_interval_minutes or 5
+            
+            # Get capital
+            capital = user.custom_margin_allocation
+            if capital is None:
+                executor = await get_user_executor(user)
+                if executor:
+                    balance_data = await executor.get_futures_balance()
+                    if balance_data:
+                        total_balance = balance_data.get("balance", 0) or balance_data.get("total_balance", 0)
+                        if total_balance > 0:
+                            capital = total_balance * 0.225
+            
+            if capital is None or capital < 20:
+                capital = 20.0
+            
+            # Run scan with 1-hour timeframe
+            candidates = await evaluate_all_markets(
+                capital=capital,
+                coins=settings.DEFAULT_COINS,
+                user_timeframes=["1h", "4h", "8h", "1d"]
+            )
+            
+    except Exception as e:
+        print(f"User-specific scan failed for user {user_id}: {e}")
+
+
+def initialize_scheduler():
+    """Initialize all scheduled tasks"""
+    # Market scan every 5 minutes
+    background_scheduler.add_job(
+        market_scan_task,
+        IntervalTrigger(minutes=5),
+        id='market_scan',
+        name='Market Scan',
+        replace_existing=True
+    )
+    
+    # Position monitor every 1 minute
+    background_scheduler.add_job(
+        position_monitor_task,
+        IntervalTrigger(minutes=1),
+        id='position_monitor',
+        name='Position Monitor',
+        replace_existing=True
+    )
+    
+    # News calendar update every 6 hours
+    background_scheduler.add_job(
+        news_calendar_update_task,
+        IntervalTrigger(hours=6),
+        id='news_calendar',
+        name='News Calendar Update',
+        replace_existing=True
+    )
+    
+    print("Scheduler initialized with default jobs")
+
+
+

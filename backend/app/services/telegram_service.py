@@ -8,7 +8,7 @@ from datetime import datetime
 from app.core.config import settings
 
 # Global dictionary to track active listeners by user_id
-active_listeners: Dict[int, TelegramSignalListener] = {}
+active_listeners: Dict[int, "TelegramSignalListener"] = {}
 
 
 class TelegramSignalParser:

@@ -144,4 +144,3 @@ async def get_telegram_status(
         "channels": current_user.telegram_channels,
         "has_credentials": bool(current_user.telegram_api_id and current_user.telegram_api_hash)
     }
-ch

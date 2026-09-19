@@ -159,7 +159,7 @@ By clicking "I Understand & Accept All Risks", you acknowledge that you have rea
                             : () async {
                                 final success = await authProvider.acceptTerms();
                                 if (success && mounted) {
-                                  // Terms accepted, app will navigate to MainScreen via AuthWrapper
+                                  Navigator.of(context).popUntil((route) => route.isFirst);
                                 }
                               },
                         style: ElevatedButton.styleFrom(

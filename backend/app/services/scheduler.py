@@ -54,11 +54,10 @@ async def market_scan_task():
     """Periodic market scanning task for all users"""
     try:
         async with AsyncSessionLocal() as db:
-            # Get all active users with CoinDCX keys
+            # Get all active users
             result = await db.execute(
                 select(User).where(
-                    User.is_active == True,
-                    User.encrypted_coindcx_api_key.isnot(None)
+                    User.is_active == True
                 )
             )
             users = result.scalars().all()
@@ -172,7 +171,7 @@ async def user_specific_scan_task(user_id: int):
             )
             user = result.scalar_one_or_none()
             
-            if not user or not user.encrypted_coindcx_api_key:
+            if not user:
                 return
             
             # Check scan interval

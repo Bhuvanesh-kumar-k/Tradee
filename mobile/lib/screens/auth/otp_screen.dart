@@ -36,15 +36,19 @@ class _OtpScreenState extends State<OtpScreen> {
 
     final authProvider = context.read<AuthProvider>();
     
+    final nameVal = _nameController.text.trim();
     final success = await authProvider.verifyOtpAndRegister(
       email: widget.email,
-      otp: _otpController.text,
+      otp: _otpController.text.trim(),
       password: widget.password,
-      name: _nameController.text.trim(),
+      name: nameVal.isEmpty ? null : nameVal,
       experienceLevel: _experienceLevel,
     );
     
-    if (!success && mounted) {
+    if (success && mounted) {
+      // Pop all pushed auth screens back to the root AuthWrapper
+      Navigator.of(context).popUntil((route) => route.isFirst);
+    } else if (!success && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(authProvider.errorMessage ?? 'Verification failed')),
       );

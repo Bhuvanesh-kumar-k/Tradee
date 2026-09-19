@@ -18,6 +18,7 @@ class Constants {
   static const String scannerStatus = '/scanner/status';
   static const String checkCoin = '/scanner/check-coin';
   static const String scannerLogs = '/scanner/logs';
+  static const String balance = '/scanner/balance';
   static const String activeTrades = '/trades/active';
   static const String tradeHistory = '/trades/history';
   static const String tradeStats = '/trades/stats';

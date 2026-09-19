@@ -19,15 +19,17 @@ async def get_user_settings(
     return {
         "email": current_user.email,
         "name": current_user.name,
+        "terms_accepted": current_user.terms_accepted,
         "experience_level": current_user.experience_level,
         "custom_margin_allocation": current_user.custom_margin_allocation,
+        "risk_percentage_per_trade": current_user.risk_percentage_per_trade,
         "scan_interval_minutes": current_user.scan_interval_minutes,
         "ai_provider": current_user.ai_provider,
         "ai_enabled": current_user.ai_enabled,
         "telegram_api_id": current_user.telegram_api_id,
         "telegram_channels": current_user.telegram_channels,
-        "has_coindcx_keys": bool(current_user.encrypted_coindcx_api_key),
-        "has_ai_key": bool(current_user.encrypted_ai_api_key)
+        "has_coindcx_keys": False,  # Keys are now stored client-side
+        "has_ai_key": False  # AI keys are now stored client-side
     }
 
 
@@ -40,6 +42,8 @@ async def update_user_settings(
     """Update user settings (keys stored client-side, not in database)"""
     if settings_update.margin:
         current_user.custom_margin_allocation = settings_update.margin.custom_margin_allocation
+        if settings_update.margin.risk_percentage_per_trade is not None:
+            current_user.risk_percentage_per_trade = settings_update.margin.risk_percentage_per_trade
         current_user.scan_interval_minutes = settings_update.margin.scan_interval_minutes
     
     if settings_update.ai:

@@ -156,9 +156,8 @@ class AuthProvider with ChangeNotifier {
         body: {'accepted': true},
       );
       if (response.statusCode == 200) {
-        if (_user != null) {
-          _user!['terms_accepted'] = true;
-        }
+        _user ??= {};
+        _user!['terms_accepted'] = true;
         _isLoading = false;
         notifyListeners();
         return true;

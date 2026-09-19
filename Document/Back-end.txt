@@ -65,13 +65,13 @@ if __name__ == "__main__":
 
 
 
-
 Requirements.txt
 ----------------
 
 fastapi==0.104.1
 uvicorn[standard]==0.24.0
 sqlalchemy==2.0.23
+aiosqlite==0.19.0
 sqlmodel==0.0.14
 pyjwt==2.8.0
 python-jose[cryptography]==3.3.0
@@ -92,9 +92,9 @@ aiosmtplib==3.0.1
 email-validator==2.1.0
 
 
+
 .env.example
 ------------
-
 # ==============================================================================
 # SMTP CONFIGURATION (for OTP emails)
 # ==============================================================================
@@ -239,7 +239,6 @@ api_router.include_router(telegram.router)
 api_router.include_router(system.router)
 
 
-
 auth.py
 -------
 
@@ -321,27 +320,32 @@ async def login(
 
 
 
-
 scanner.py
 ----------
 
 
-from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Header
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.api.deps import get_current_user, get_current_verified_user
 from app.models.user import User
 from app.schemas.scanner import SingleCoinCheckRequest, CoinAnalysisResult, ScannerLogResponse
-from app.core.strategy import evaluate_pair, evaluate_all_markets
-from app.core.market_data import get_market_trend
+from app.core.strategy import evaluate_pair, evaluate_all_markets, get_market_trend
 from app.core.news_calendar import circuit_breaker
 from app.models.scanner_log import ScannerLog
-from app.services.coindcx_executor import get_user_executor
+from app.services.coindcx_executor import CoinDCXExecutor
 from sqlalchemy import select
 from datetime import datetime
 import httpx
 
 router = APIRouter(prefix="/scanner", tags=["Market Scanner"])
+
+
+async def convert_to_usdt(amount: float, preferred_currency: str) -> float:
+    """Convert amount to USDT based on preferred currency"""
+    if preferred_currency == "INR":
+        return amount / 90.0  # Approximate conversion rate
+    return amount
 
 
 @router.get("/status")
@@ -403,7 +407,8 @@ async def check_single_coin(
                     total_balance = float(balance_data.get("balance", 0) or balance_data.get("total_balance", 0) or balance_data.get("usdt_balance", 0) or 0.0)
                 
                 if total_balance > 0:
-                    capital = total_balance * 0.225
+                    risk_pct = getattr(current_user, "risk_percentage_per_trade", 0.25)
+                    capital = total_balance * risk_pct
         
         # Fallback if balance fetch failed or no keys
         if capital is None or capital < 20:
@@ -596,7 +601,7 @@ async def verify_ai_key(
         # Check if the result is valid
         if result.get("verdict") in ["APPROVE", "REJECT"] and result.get("confidence", 0) > 0:
             current_user.ai_provider = verify_request.provider
-            current_user.encrypted_ai_api_key = encrypt_data(verify_request.api_key)
+            # AI keys are now stored client-side, not in database
             current_user.ai_enabled = True
             await db.commit()
             return {
@@ -796,7 +801,6 @@ async def get_conversion_rate():
         )
 
 
-
 telegram.py
 -----------
 
@@ -808,7 +812,8 @@ from app.models.user import User
 from app.models.telegram_signal import TelegramSignal
 from app.services.telegram_service import TelegramSignalListener, active_listeners
 from app.services.ai_service import AIService
-from app.core.market_data import get_market_trend, fetch_raw_candles
+from app.core.strategy import get_market_trend
+from app.core.market_data import fetch_raw_candles
 from app.core.indicators import calculate_all_indicators
 from sqlalchemy import select
 from typing import List
@@ -868,62 +873,10 @@ async def start_telegram_listener(
         db.add(signal)
         await db.commit()
         
-        # AI Analysis if enabled
-        if current_user.ai_enabled and current_user.encrypted_ai_api_key:
-            from app.core.encryption import decrypt_data
-            try:
-                api_key = decrypt_data(current_user.encrypted_ai_api_key)
-                
-                # Get market context
-                btc_trend = await get_market_trend("B-BTC_USDT", "1d")
-                coin_pair = signal_data.get("coin_pair", "")
-                if coin_pair:
-                    coin_1d_trend = await get_market_trend(coin_pair, "1d")
-                    coin_1h_trend = await get_market_trend(coin_pair, "1h")
-                    
-                    # Get indicator values
-                    df = await fetch_raw_candles(coin_pair, "1h", limit=100)
-                    if df is not None:
-                        df = calculate_all_indicators(df)
-                        last_bar = df.iloc[-2]
-                        
-                        market_context = {
-                            "btc_trend": btc_trend,
-                            "coin_1d_trend": coin_1d_trend,
-                            "coin_1h_trend": coin_1h_trend,
-                            "rsi": last_bar.get("rsi"),
-                            "macd_hist": last_bar.get("macdhist"),
-                            "adx": last_bar.get("adx"),
-                            "ema50": last_bar.get("ema50"),
-                            "ema200": last_bar.get("ema200")
-                        }
-                        
-                        # Get AI analysis
-                        ai_result = await AIService.analyze_signal(
-                            current_user.ai_provider,
-                            api_key,
-                            signal_data,
-                            market_context
-                        )
-                        
-                        signal.ai_verdict = ai_result["verdict"]
-                        signal.ai_reasoning = ai_result["reasoning"]
-                        signal.ai_confidence = ai_result["confidence"]
-                        signal.market_trend = coin_1d_trend
-                        signal.indicator_confluence = market_context
-                        signal.is_processed = True
-                        signal.processed_at = signal_data.get("timestamp")
-                        
-                        await db.commit()
-                        
-                        # Send WebSocket notification
-                        from app.api.v1.websocket import send_signal_alert
-                        await send_signal_alert(current_user.id, {
-                            "signal": signal_data,
-                            "ai_verdict": ai_result
-                        })
-            except Exception as e:
-                print(f"AI analysis failed: {e}")
+        # AI Analysis if enabled - requires AI API key from headers
+        # Note: AI keys are now stored client-side and passed via headers
+        # This endpoint would need to accept X-AI-Key header for AI analysis
+        # For now, skip AI analysis as it requires ephemeral key passing
     
     listener.set_signal_callback(handle_signal)
     
@@ -995,9 +948,8 @@ async def get_telegram_status(
     return {
         "is_running": current_user.id in active_listeners,
         "channels": current_user.telegram_channels,
-        "has_credentials": bool(current_user.telegram_api_id and current_user.telegram_api_hash)
+        "has_credentials": bool(current_user.telegram_channels)
     }
-
 
 
 
@@ -1146,15 +1098,14 @@ async def update_all_pnl(
 
 
 
+
 websocket.py
 ------------
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from typing import Dict, Set
 import json
 import asyncio
-from app.api.deps import get_current_user_ws
-from app.models.user import User
 
 router = APIRouter(prefix="/ws", tags=["WebSocket"])
 
@@ -1280,7 +1231,6 @@ async def send_system_status(user_id: int, status: str, message: str):
 
 
 
-
 D:\Devin\Crypto-App\backend\app\core
 
 __init__.py
@@ -1389,7 +1339,6 @@ async def get_db():
             yield session
         finally:
             await session.close()
-
 
 
 encryption.py
@@ -1603,6 +1552,7 @@ def calculate_all_indicators(df: pd.DataFrame) -> pd.DataFrame:
 
 
 
+
 market_data.py
 --------------
 
@@ -1732,8 +1682,6 @@ async def fetch_candles(pair: str, interval: str) -> pd.DataFrame | None:
         return df_30m
 
     return await fetch_raw_candles(pair, interval=interval, limit=250)
-
-
 
 
 
@@ -2182,6 +2130,7 @@ class OTP(Base):
 
 
 
+
 scanner_log.py
 --------------
 
@@ -2216,6 +2165,7 @@ class ScannerLog(Base):
     # Metadata
     scan_time = Column(DateTime(timezone=True), server_default=func.now())
     cycle_number = Column(Integer, nullable=True)
+
 
 
 
@@ -2324,7 +2274,7 @@ class TradeLog(Base):
     
     log_type = Column(String, nullable=False)  # SCAN, SIGNAL, ENTRY, EXIT, ALERT
     message = Column(Text, nullable=False)
-    metadata = Column(JSON, nullable=True)
+    trade_metadata = Column(JSON, nullable=True)
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -2349,7 +2299,8 @@ class User(Base):
     experience_level = Column(String, nullable=True)  # Beginner, Intermediate, Pro
     
     # Margin Settings
-    custom_margin_allocation = Column(Float, nullable=True)  # If None, use 20-25% of balance
+    custom_margin_allocation = Column(Float, nullable=True)  # If None, use risk_percentage_per_trade of balance
+    risk_percentage_per_trade = Column(Float, default=0.25, nullable=False)  # 0.03 (3%) to 0.50 (50%), default 0.25 (25%)
     scan_interval_minutes = Column(Integer, default=5)  # 3, 5, 7, 10, 15, 30
     
     # AI Settings (provider preference only, keys stored client-side)
@@ -2376,7 +2327,6 @@ class User(Base):
     auto_trading_enabled = Column(Boolean, default=False, nullable=False)
     preferred_currency = Column(String, default="INR", nullable=False)  # "INR" or "USDT"
     trading_timeframes = Column(JSON, default=list, nullable=False)  # List of allowed execution timeframes (e.g., ["1h", "2h", "4h", "8h", "1d"])
-
 
 
 
@@ -2430,7 +2380,6 @@ class CoinAnalysisResult(BaseModel):
     expected_roi: Optional[float]
 
 
-
 settings.py
 -----------
 
@@ -2445,6 +2394,7 @@ class CoinDCXSettings(BaseModel):
 
 class MarginSettings(BaseModel):
     custom_margin_allocation: Optional[float] = Field(None, ge=0)
+    risk_percentage_per_trade: Optional[float] = Field(0.25, ge=0.03, le=0.50)
     scan_interval_minutes: int = Field(5, ge=3, le=30)
 
 
@@ -2476,7 +2426,6 @@ class UserSettingsUpdate(BaseModel):
 class AIKeyVerify(BaseModel):
     provider: str = Field(..., pattern="^(Gemini|Copilot|OpenAI)$")
     api_key: str
-
 
 
 
@@ -2595,7 +2544,6 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserResponse
-
 
 
 
@@ -2808,6 +2756,7 @@ class AIService:
 
 
 
+
 auth_service.py
 ---------------
 
@@ -2927,6 +2876,8 @@ async def login_user(db: AsyncSession, email: str, password: str) -> Optional[di
         "access_token": access_token,
         "user": user
     }
+
+
 
 
 
@@ -3123,6 +3074,8 @@ async def get_user_executor(user) -> Optional[CoinDCXExecutor]:
 
 
 
+
+
 email_service.py
 ----------------
 
@@ -3183,6 +3136,8 @@ async def send_otp_email(email: str, otp_code: str) -> bool:
 def get_otp_expiry() -> datetime:
     """Get OTP expiry time (10 minutes from now)"""
     return datetime.utcnow() + timedelta(minutes=10)
+
+
 
 
 
@@ -3314,7 +3269,7 @@ class PositionTracker:
             trade_id=trade.id,
             log_type="EXIT",
             message=f"Position closed: {exit_reason}",
-            metadata={
+            trade_metadata={
                 "exit_price": current_price,
                 "pnl": trade.pnl,
                 "pnl_percentage": trade.pnl_percentage
@@ -3334,7 +3289,7 @@ class PositionTracker:
         trade_id: Optional[int],
         log_type: str,
         message: str,
-        metadata: Optional[dict] = None
+        trade_metadata: Optional[dict] = None
     ):
         """Log a trade event"""
         log = TradeLog(
@@ -3342,7 +3297,7 @@ class PositionTracker:
             trade_id=trade_id,
             log_type=log_type,
             message=message,
-            metadata=metadata
+            trade_metadata=trade_metadata
         )
         db.add(log)
         await db.commit()
@@ -3405,6 +3360,7 @@ class PositionTracker:
             "win_rate": round(win_rate, 2),
             "net_pnl": round(net_pnl, 2) if net_pnl else 0
         }
+
 
 
 
@@ -3497,7 +3453,8 @@ async def market_scan_task():
                             if balance_data:
                                 total_balance = balance_data.get("balance", 0) or balance_data.get("total_balance", 0)
                                 if total_balance > 0:
-                                    capital = total_balance * 0.225
+                                    risk_pct = getattr(user, "risk_percentage_per_trade", 0.25)
+                                    capital = total_balance * risk_pct
                     
                     if capital is None or capital < 20:
                         capital = 20.0
@@ -3599,7 +3556,8 @@ async def user_specific_scan_task(user_id: int):
                     if balance_data:
                         total_balance = balance_data.get("balance", 0) or balance_data.get("total_balance", 0)
                         if total_balance > 0:
-                            capital = total_balance * 0.225
+                            risk_pct = getattr(user, "risk_percentage_per_trade", 0.25)
+                            capital = total_balance * risk_pct
             
             if capital is None or capital < 20:
                 capital = 20.0
@@ -3648,6 +3606,8 @@ def initialize_scheduler():
 
 
 
+
+
 telegram_service.py
 -------------------
 
@@ -3659,6 +3619,9 @@ import os
 from typing import Optional, Dict, List
 from datetime import datetime
 from app.core.config import settings
+
+# Global dictionary to track active listeners by user_id
+active_listeners: Dict[int, "TelegramSignalListener"] = {}
 
 
 class TelegramSignalParser:
@@ -3797,7 +3760,4 @@ class TelegramSignalListener:
                     })
                     messages.append(parsed)
         return messages
-
-
-
 

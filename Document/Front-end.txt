@@ -33,7 +33,8 @@ linter:
 # https://dart.dev/guides/language/analysis-options
 
 
-crypto_trading.iml
+
+crypto_trading_app.iml
 ------------------
 
 <?xml version="1.0" encoding="UTF-8"?>
@@ -53,6 +54,7 @@ crypto_trading.iml
     <orderEntry type="library" name="Dart Packages" level="project" />
   </component>
 </module>
+
 
 
 pubspec.lock
@@ -93,6 +95,7 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+
 
 
 
@@ -318,7 +321,6 @@ class WebSocketService extends ChangeNotifier {
     _reconnectAttempts = 0;
   }
 }
-
 
 
 
@@ -649,6 +651,7 @@ class SettingsProvider with ChangeNotifier {
   Map<String, dynamic> get settings => _settings;
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
+  double get riskPercentage => ((_settings['risk_percentage_per_trade'] ?? 0.25) as num).toDouble();
   
   Future<void> fetchSettings() async {
     _isLoading = true;
@@ -735,23 +738,6 @@ class SettingsProvider with ChangeNotifier {
   Future<bool> verifyAiKey(String provider, String apiKey) async {
     _isLoading = true;
     notifyListeners();
-  
-  // Secure storage methods for client-side key management
-  Future<String?> getSecureKey(String key) async {
-    return await _storage.read(key: key);
-  }
-  
-  Future<void> setSecureKey(String key, String value) async {
-    await _storage.write(key: key, value: value);
-  }
-  
-  Future<void> deleteSecureKey(String key) async {
-    await _storage.delete(key: key);
-  }
-  
-  Future<void> clearAllSecureKeys() async {
-    await _storage.deleteAll();
-  }
     
     try {
       final response = await ApiClient.post(
@@ -783,6 +769,7 @@ class SettingsProvider with ChangeNotifier {
     notifyListeners();
   }
 }
+
 
 
 
@@ -1106,7 +1093,7 @@ By clicking "I Understand & Accept All Risks", you acknowledge that you have rea
                 width: double.infinity,
                 padding: EdgeInsets.all(16.w),
                 decoration: BoxDecoration(
-                  color: Colors.red.withOpacity(0.1),
+                  color: Colors.red.withValues(alpha: 0.1),
                   border: Border.all(color: Colors.red),
                 ),
                 child: Row(
@@ -1727,12 +1714,12 @@ class _DashboardTabState extends State<DashboardTab> {
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: [
-            AppTheme.primaryColor.withOpacity(0.2),
-            AppTheme.secondaryColor.withOpacity(0.2),
+            AppTheme.primaryColor.withValues(alpha: 0.2),
+            AppTheme.secondaryColor.withValues(alpha: 0.2),
           ],
         ),
         borderRadius: BorderRadius.circular(16.r),
-        border: Border.all(color: AppTheme.primaryColor.withOpacity(0.3)),
+        border: Border.all(color: AppTheme.primaryColor.withValues(alpha: 0.3)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1831,8 +1818,8 @@ class _DashboardTabState extends State<DashboardTab> {
                   padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 4.h),
                   decoration: BoxDecoration(
                     color: trade.direction == 'LONG'
-                        ? AppTheme.successColor.withOpacity(0.2)
-                        : AppTheme.dangerColor.withOpacity(0.2),
+                        ? AppTheme.successColor.withValues(alpha: 0.2)
+                        : AppTheme.dangerColor.withValues(alpha: 0.2),
                     borderRadius: BorderRadius.circular(8.r),
                   ),
                   child: Text(
@@ -1982,6 +1969,7 @@ class StatCard extends StatelessWidget {
 
 
 
+
 scanner_tab.dart
 ----------------
 
@@ -2057,8 +2045,8 @@ class _ScannerTabState extends State<ScannerTab> {
       padding: EdgeInsets.all(16.w),
       decoration: BoxDecoration(
         color: isFrozen 
-            ? AppTheme.warningColor.withOpacity(0.2)
-            : AppTheme.successColor.withOpacity(0.2),
+            ? AppTheme.warningColor.withValues(alpha: 0.2)
+            : AppTheme.successColor.withValues(alpha: 0.2),
         borderRadius: BorderRadius.circular(12.r),
         border: Border.all(
           color: isFrozen ? AppTheme.warningColor : AppTheme.successColor,
@@ -2116,8 +2104,6 @@ class _ScannerTabState extends State<ScannerTab> {
   }
 
   Widget _buildLogCard(ScannerLog log) {
-    final hasSignal = log.signalDetected != null && log.signalDetected != 'NONE';
-    
     return Card(
       margin: EdgeInsets.only(bottom: 12.h),
       child: Padding(
@@ -2193,7 +2179,7 @@ class _ScannerTabState extends State<ScannerTab> {
     return Container(
       padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 4.h),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.2),
+        color: color.withValues(alpha: 0.2),
         borderRadius: BorderRadius.circular(8.r),
       ),
       child: Text(
@@ -2258,7 +2244,6 @@ class _ScannerTabState extends State<ScannerTab> {
     );
   }
 }
-
 
 
 
@@ -2385,8 +2370,8 @@ class _SingleCoinTabState extends State<SingleCoinTab> {
                     padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 6.h),
                     decoration: BoxDecoration(
                       color: overallSignal == 'LONG'
-                          ? AppTheme.successColor.withOpacity(0.2)
-                          : AppTheme.dangerColor.withOpacity(0.2),
+                          ? AppTheme.successColor.withValues(alpha: 0.2)
+                          : AppTheme.dangerColor.withValues(alpha: 0.2),
                       borderRadius: BorderRadius.circular(8.r),
                     ),
                     child: Text(
@@ -2463,8 +2448,8 @@ class _SingleCoinTabState extends State<SingleCoinTab> {
                 padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 4.h),
                 decoration: BoxDecoration(
                   color: direction == 'LONG'
-                      ? AppTheme.successColor.withOpacity(0.2)
-                      : AppTheme.dangerColor.withOpacity(0.2),
+                      ? AppTheme.successColor.withValues(alpha: 0.2)
+                      : AppTheme.dangerColor.withValues(alpha: 0.2),
                   borderRadius: BorderRadius.circular(8.r),
                 ),
                 child: Text(
@@ -2534,7 +2519,6 @@ class _SingleCoinTabState extends State<SingleCoinTab> {
 
 
 
-
 telegram_tab.dart
 -----------------
 
@@ -2579,7 +2563,7 @@ class _TelegramTabState extends State<TelegramTab> {
       decoration: BoxDecoration(
         color: AppTheme.cardColor,
         borderRadius: BorderRadius.circular(12.r),
-        border: Border.all(color: AppTheme.primaryColor.withOpacity(0.3)),
+        border: Border.all(color: AppTheme.primaryColor.withValues(alpha: 0.3)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -2596,7 +2580,7 @@ class _TelegramTabState extends State<TelegramTab> {
               Container(
                 padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 4.h),
                 decoration: BoxDecoration(
-                  color: AppTheme.textSecondary.withOpacity(0.2),
+                  color: AppTheme.textSecondary.withValues(alpha: 0.2),
                   borderRadius: BorderRadius.circular(8.r),
                 ),
                 child: Text(
@@ -2678,8 +2662,8 @@ class _TelegramTabState extends State<TelegramTab> {
                   padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 4.h),
                   decoration: BoxDecoration(
                     color: signal['direction'] == 'LONG'
-                        ? AppTheme.successColor.withOpacity(0.2)
-                        : AppTheme.dangerColor.withOpacity(0.2),
+                        ? AppTheme.successColor.withValues(alpha: 0.2)
+                        : AppTheme.dangerColor.withValues(alpha: 0.2),
                     borderRadius: BorderRadius.circular(8.r),
                   ),
                   child: Text(
@@ -2721,8 +2705,8 @@ class _TelegramTabState extends State<TelegramTab> {
               padding: EdgeInsets.all(12.w),
               decoration: BoxDecoration(
                 color: isApproved
-                    ? AppTheme.successColor.withOpacity(0.1)
-                    : AppTheme.dangerColor.withOpacity(0.1),
+                    ? AppTheme.successColor.withValues(alpha: 0.1)
+                    : AppTheme.dangerColor.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(8.r),
               ),
               child: Column(
@@ -2796,7 +2780,6 @@ class _TelegramTabState extends State<TelegramTab> {
 
 
 
-
 D:\Devin\Crypto-App\mobile\lib\screens\settings
 
 settings_screen.dart
@@ -2845,6 +2828,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
   String _preferredCurrency = 'INR';
   List<String> _selectedTimeframes = ['1h', '4h', '8h', '1d'];
   final List<String> _availableTimeframes = ['1h', '2h', '4h', '8h', '1d'];
+  double _riskPercentage = 0.25;
   
   // Secure storage for client-side keys
   final FlutterSecureStorage _storage = const FlutterSecureStorage();
@@ -2852,7 +2836,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 4, vsync: this);
+    _tabController = TabController(length: 5, vsync: this);
     _loadSettings();
   }
 
@@ -2940,11 +2924,13 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
           // Tab Bar
           TabBar(
             controller: _tabController,
+            isScrollable: true,
             tabs: const [
               Tab(text: 'CoinDCX'),
               Tab(text: 'Margin'),
               Tab(text: 'AI'),
               Tab(text: 'Telegram'),
+              Tab(text: 'Trading'),
             ],
           ),
           
@@ -2973,8 +2959,8 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: [
-            AppTheme.primaryColor.withOpacity(0.2),
-            AppTheme.secondaryColor.withOpacity(0.2),
+            AppTheme.primaryColor.withValues(alpha: 0.2),
+            AppTheme.secondaryColor.withValues(alpha: 0.2),
           ],
         ),
         borderRadius: BorderRadius.circular(12.r),
@@ -3070,7 +3056,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
           Container(
             padding: EdgeInsets.all(12.w),
             decoration: BoxDecoration(
-              color: AppTheme.successColor.withOpacity(0.1),
+              color: AppTheme.successColor.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(8.r),
             ),
             child: Row(
@@ -3089,8 +3075,6 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
   }
 
   Widget _buildMarginTab(SettingsProvider provider) {
-    final settings = provider.settings;
-    
     return ListView(
       padding: EdgeInsets.all(16.w),
       children: [
@@ -3108,12 +3092,36 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
           decoration: InputDecoration(
             labelText: 'Custom Margin Allocation (USDT)',
             prefixIcon: const Icon(Icons.account_balance_wallet_outlined),
-            hintText: 'Leave empty to use 20-25% of balance',
+            hintText: 'Leave empty to use risk percentage below',
             suffixIcon: _buildHelpTooltip(
-              'Fixed USDT amount to use per trade. If empty, system uses 22.5% of your live CoinDCX balance.',
+              'Fixed USDT amount to use per trade. If empty, system uses your risk percentage of balance.',
             ),
           ),
           keyboardType: TextInputType.number,
+        ),
+        SizedBox(height: 24.h),
+        Text(
+          'Risk Per Trade: ${(_riskPercentage * 100).toInt()}% of Balance',
+          style: Theme.of(context).textTheme.bodyMedium,
+        ),
+        SizedBox(height: 8.h),
+        Slider(
+          value: _riskPercentage,
+          min: 0.03,
+          max: 0.50,
+          divisions: 47,
+          label: '${(_riskPercentage * 100).toInt()}%',
+          activeColor: AppTheme.primaryColor,
+          onChanged: (val) {
+            setState(() {
+              _riskPercentage = val;
+            });
+          },
+        ),
+        SizedBox(height: 8.h),
+        Text(
+          'Recommended: 15% - 25% for balanced portfolio protection.',
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppTheme.textSecondary),
         ),
         SizedBox(height: 16.h),
         Text(
@@ -3210,7 +3218,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
           Container(
             padding: EdgeInsets.all(12.w),
             decoration: BoxDecoration(
-              color: AppTheme.successColor.withOpacity(0.1),
+              color: AppTheme.successColor.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(8.r),
             ),
             child: Row(
@@ -3289,7 +3297,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
           Container(
             padding: EdgeInsets.all(12.w),
             decoration: BoxDecoration(
-              color: AppTheme.successColor.withOpacity(0.1),
+              color: AppTheme.successColor.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(8.r),
             ),
             child: Row(
@@ -3331,7 +3339,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
               _autoTradingEnabled = value;
             });
           },
-          activeColor: AppTheme.primaryColor,
+          activeThumbColor: AppTheme.primaryColor,
         ),
         SizedBox(height: 16.h),
         
@@ -3342,7 +3350,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
         ),
         SizedBox(height: 8.h),
         DropdownButtonFormField<String>(
-          value: _preferredCurrency,
+          initialValue: _preferredCurrency,
           decoration: InputDecoration(
             prefixIcon: const Icon(Icons.currency_exchange),
             suffixIcon: _buildHelpTooltip(
@@ -3388,7 +3396,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                   }
                 });
               },
-              selectedColor: AppTheme.primaryColor.withOpacity(0.3),
+              selectedColor: AppTheme.primaryColor.withValues(alpha: 0.3),
               checkmarkColor: AppTheme.primaryColor,
             );
           }).toList(),
@@ -3408,7 +3416,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
       decoration: BoxDecoration(
         color: AppTheme.cardColor,
         borderRadius: BorderRadius.circular(8.r),
-        border: Border.all(color: AppTheme.primaryColor.withOpacity(0.3)),
+        border: Border.all(color: AppTheme.primaryColor.withValues(alpha: 0.3)),
       ),
       child: Row(
         children: [
@@ -3525,6 +3533,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
     final success = await provider.updateSettings({
       'margin': {
         'custom_margin_allocation': _customMargin.text.isEmpty ? null : double.tryParse(_customMargin.text),
+        'risk_percentage_per_trade': _riskPercentage,
         'scan_interval_minutes': _scanInterval,
       }
     });
@@ -3739,7 +3748,6 @@ INDICATORS USED
 
 
 
-
 D:\Devin\Crypto-App\mobile\lib\utils
 
 
@@ -3812,26 +3820,22 @@ constants.dart
 --------------
 
 class Constants {
-  // Cloud Host Configuration
-  // For cloud deployment, replace with your cloud server URL
-  // Example: static const String apiBaseUrl = 'https://your-cloud-server.com/api/v1';
-  // For local development: use 10.0.2.2 for Android Emulator, or your LAN IP for physical device
-  static const String apiBaseUrl = 'http://10.0.2.2:8000/api/v1';
-  static const String wsUrl = 'ws://10.0.2.2:8000/api/v1/ws/live-updates';
+  static const String apiBaseUrl = 'https://tradee-backend.onrender.com/api/v1';
+  static const String wsUrl = 'wss://tradee-backend.onrender.com/api/v1/ws/live-updates';
 
-  // System endpoints
+  // System endpoints (relative paths)
   static const String terms = '/system/terms';
   static const String acceptTerms = '/system/accept-terms';
-  static const String about = '$apiBaseUrl/system/about';
-  static const String keyGuides = '$apiBaseUrl/system/key-guides';
+  static const String about = '/system/about';
+  static const String keyGuides = '/system/key-guides';
+  static const String conversionRate = '/system/conversion-rate';
 
-  // Other endpoints
+  // Auth & Trading endpoints (relative paths)
   static const String requestOtp = '/auth/request-otp';
   static const String verifyOtp = '/auth/verify-otp';
   static const String login = '/auth/login';
   static const String settings = '/settings/me';
   static const String verifyAiKey = '/settings/verify-ai-key';
-  static const String conversionRate = '$apiBaseUrl/system/conversion-rate';
   static const String scannerStatus = '/scanner/status';
   static const String checkCoin = '/scanner/check-coin';
   static const String scannerLogs = '/scanner/logs';
@@ -3871,7 +3875,6 @@ class AppTheme {
     colorScheme: const ColorScheme.dark(
       primary: primaryColor,
       secondary: secondaryColor,
-      background: backgroundColor,
       surface: cardColor,
       error: dangerColor,
     ),

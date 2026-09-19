@@ -1,0 +1,68 @@
+### Part 1: How the Background Coin Check Currently Works
+
+#### Will it run all the time on Render?
+
+**No, it does not constantly check coins in the background right now.**
+
+Here is the exact trace of how your code currently behaves:
+
+* **The Scheduler Starts at Boot:** In `main.py`, Render starts `background_scheduler.start()` on startup. In `scheduler.py`, `initialize_scheduler()` registers `market_scan_task` to fire every 5 minutes.
+
+
+* **The Hard DB Query Filter:** When the 5-minute timer triggers, `market_scan_task()` queries SQLite:
+
+
+```python
+select(User).where(
+    User.is_active == True,
+    User.encrypted_coindcx_api_key.isnot(None)
+)
+
+```
+
+
+
+* **The Short-Circuit:** Because you moved all API keys to the user's mobile device (`FlutterSecureStorage`) and stopped storing them in the database, `User.encrypted_coindcx_api_key` is always `NULL` for every user.
+
+
+* **The Outcome:** The query returns `[]` (empty list). The loop terminates in 0.01 seconds without downloading any market candles from CoinDCX.
+
+
+* **On-Demand Execution:** The scanner **only** downloads candle data and evaluates indicators when your mobile app explicitly calls:
+`POST /api/v1/scanner/check-coin` (via the Single Coin tab) or when someone triggers an on-demand check from the UI.
+
+
+
+If you want background scans to run **strictly when requested by the app**, the architecture is already behaving as an on-demand scanner because the background job exits immediately without processing any coins.
+
+---
+
+### Part 2: Can We Fix the 5 Disadvantages Properly and Effectively?
+
+**Yes. All five disadvantages can be resolved cleanly** using established production patterns:
+
+| Disadvantage | Can It Be Fixed? | How to Fix It Effectively |
+| --- | --- | --- |
+| **1. Incomplete Exchange-Side Stop Loss** | **Yes** | Instead of running a 60-second Python polling loop, send native bracket orders directly to CoinDCX (`order_type: "stop_limit"` or post-fill conditional orders `/exchange/v1/derivatives/futures/orders/create` with `stop_price` / `target_price`). This moves the stop-loss trigger to the exchange matching engine so your capital remains protected even if Render shuts down.
+
+ |
+| **2. Client-Side Keys vs. 24/7 Scanning** | **Yes** | **Option A (Manual Mode - Your Preference):** Keep client-side storage. The backend operates strictly as an on-demand calculation engine when the app is open.
+
+<br>
+
+<br>**Option B (Full 24/7 Automation):** Generate sub-accounts or trade-only API keys (with withdrawal permissions disabled), encrypt them with user-derived PBKDF2 passphrases, and store the encrypted payload on the backend so the background scheduler can execute orders autonomously.
+
+ |
+| **3. Ephemeral Disk (SQLite on Render)** | **Yes** | SQLite on Render gets wiped whenever the dyno restarts. In the Render dashboard, create a **Render PostgreSQL** database (free tier or $7/mo), copy the `Internal Database URL`, and set it as `DATABASE_URL=postgresql+asyncpg://...` in your Environment settings. The tables persist across all redeployments with zero code redesign.
+
+ |
+| **4. Slippage & Indicator Lag** | **Yes** | **Slippage:** Replace pure `market_order` exits with post-only Limit orders or `stop_limit` orders with a bounded slip buffer. <br>
+
+<br>**Lag:** Add multi-period momentum triggers (e.g., lower timeframe 15m volume-weighted MACD momentum flips) alongside the higher timeframe EMA 50/200 bias so entries happen closer to the structural pivot rather than late in the candle cycle.
+
+ |
+| **5. Multi-User Telethon Freezes** | **Yes** | Replace interactive user MTProto sessions with a dedicated **Telegram Bot API Webhook** (`aiogram` or `python-telegram-bot`). Have signal channels forward messages into your verification bot, or use channel webhook forwarders. Bot tokens never expire, require zero SMS OTP authentication steps, and never disconnect on container restarts. |
+
+---
+
+To see how native stop-loss and take-profit parameters are configured directly on the exchange matching engine to prevent execution lag during server downtime, review this guide on [Learn Take Profit & Stop Loss Like a Pro](https://www.youtube.com/watch?v=dyOIOZe3sUk&utm_source=gemini). This tutorial demonstrates setting exchange-side conditional orders that execute automatically without relying on server polling loops.

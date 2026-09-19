@@ -4,11 +4,12 @@ import os
 
 
 class Settings(BaseSettings):
-    # SMTP Configuration
+    # Email Delivery Configuration
+    RESEND_API_KEY: Optional[str] = None
     SMTP_HOST: str = "smtp.gmail.com"
     SMTP_PORT: int = 465
-    SMTP_EMAIL: str
-    SMTP_PASSWORD: str
+    SMTP_EMAIL: str = "bhuvaneshkumark.kec@gmail.com"
+    SMTP_PASSWORD: str = ""
     
     # JWT Configuration
     SECRET_KEY: str

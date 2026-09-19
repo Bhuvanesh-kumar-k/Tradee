@@ -6,7 +6,7 @@ import os
 class Settings(BaseSettings):
     # SMTP Configuration
     SMTP_HOST: str = "smtp.gmail.com"
-    SMTP_PORT: int = 587
+    SMTP_PORT: int = 465
     SMTP_EMAIL: str
     SMTP_PASSWORD: str
     

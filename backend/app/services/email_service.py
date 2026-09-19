@@ -1,5 +1,6 @@
 import random
 import aiosmtplib
+import traceback
 from email.message import EmailMessage
 from datetime import datetime, timedelta
 from typing import Optional
@@ -12,43 +13,51 @@ def generate_otp() -> str:
 
 
 async def send_otp_email(email: str, otp_code: str) -> bool:
-    """Send OTP email via SMTP"""
+    """Send OTP email via SMTP with direct SSL (465) or STARTTLS (587)"""
     try:
+        clean_password = settings.SMTP_PASSWORD.replace(" ", "").strip()
         message = EmailMessage()
         message["From"] = settings.SMTP_EMAIL
         message["To"] = email
-        message["Subject"] = "Your Crypto Trading Platform Verification Code"
+        message["Subject"] = f"{otp_code} is your Tradee verification code"
         
         body = f"""
         <html>
-        <body>
-            <h2>Crypto Trading Platform - Email Verification</h2>
-            <p>Your verification code is:</p>
-            <h1 style="color: #4CAF50; font-size: 32px; letter-spacing: 5px;">{otp_code}</h1>
-            <p>This code will expire in 10 minutes.</p>
-            <p>If you didn't request this code, please ignore this email.</p>
-            <hr>
-            <p style="color: #666; font-size: 12px;">
-                This is an automated message from Crypto Trading Platform. 
-                Please do not reply to this email.
-            </p>
+        <body style="font-family: Arial, sans-serif; background-color: #0D1117; color: #E6EDF3; padding: 24px;">
+            <div style="max-width: 480px; margin: 0 auto; background-color: #161B22; border-radius: 12px; padding: 32px; border: 1px solid #30363D;">
+                <h2 style="color: #00D4AA; margin-top: 0;">Tradee Email Verification</h2>
+                <p style="color: #8B949E; font-size: 14px;">Use the following one-time code to complete your registration:</p>
+                <div style="background-color: #0D1117; padding: 16px; text-align: center; border-radius: 8px; margin: 24px 0;">
+                    <span style="color: #00D4AA; font-size: 36px; font-weight: bold; letter-spacing: 8px;">{otp_code}</span>
+                </div>
+                <p style="color: #8B949E; font-size: 13px;">This code will expire in 10 minutes. If you did not request this, please ignore this email.</p>
+                <hr style="border: 0; border-top: 1px solid #30363D; margin: 24px 0;">
+                <p style="color: #8B949E; font-size: 11px; margin: 0;">Automated message from Tradee Platform. Do not reply.</p>
+            </div>
         </body>
         </html>
         """
         message.set_content(body, subtype="html")
-        
+
+        # Port 465 uses direct SSL (use_tls=True)
+        # Port 587 uses STARTTLS (start_tls=True)
+        is_ssl_port = int(settings.SMTP_PORT) == 465
+
         await aiosmtplib.send(
             message,
             hostname=settings.SMTP_HOST,
-            port=settings.SMTP_PORT,
-            username=settings.SMTP_EMAIL,
-            password=settings.SMTP_PASSWORD,
-            start_tls=True,
-            timeout=10
+            port=int(settings.SMTP_PORT),
+            username=settings.SMTP_EMAIL.strip(),
+            password=clean_password,
+            use_tls=is_ssl_port,
+            start_tls=not is_ssl_port,
+            timeout=15
         )
+        print(f"✅ OTP email sent successfully to {email}")
         return True
     except Exception as e:
-        print(f"Failed to send OTP email: {e}")
+        print(f"❌ Failed to send OTP email to {email}: {e}")
+        traceback.print_exc()
         return False
 
 

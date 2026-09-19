@@ -1,9 +1,7 @@
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from typing import Dict, Set
 import json
 import asyncio
-from app.api.deps import get_current_user_ws
-from app.models.user import User
 
 router = APIRouter(prefix="/ws", tags=["WebSocket"])
 

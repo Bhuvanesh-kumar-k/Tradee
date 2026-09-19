@@ -1,10 +1,6 @@
 class Constants {
-  // Cloud Host Configuration
-  // For cloud deployment, replace with your cloud server URL
-  // Example: static const String apiBaseUrl = 'https://your-cloud-server.com/api/v1';
-  // For local development: use 10.0.2.2 for Android Emulator, or your LAN IP for physical device
-  static const String apiBaseUrl = 'http://10.0.2.2:8000/api/v1';
-  static const String wsUrl = 'ws://10.0.2.2:8000/api/v1/ws/live-updates';
+  static const String apiBaseUrl = 'https://tradee-backend.onrender.com/api/v1';
+  static const String wsUrl = 'wss://tradee-backend.onrender.com/api/v1/ws/live-updates';
 
   // System endpoints (relative paths)
   static const String terms = '/system/terms';

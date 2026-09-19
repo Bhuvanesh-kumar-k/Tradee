@@ -9,6 +9,7 @@ class CoinDCXSettings(BaseModel):
 
 class MarginSettings(BaseModel):
     custom_margin_allocation: Optional[float] = Field(None, ge=0)
+    risk_percentage_per_trade: Optional[float] = Field(0.25, ge=0.03, le=0.50)
     scan_interval_minutes: int = Field(5, ge=3, le=30)
 
 

@@ -41,6 +41,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
   String _preferredCurrency = 'INR';
   List<String> _selectedTimeframes = ['1h', '4h', '8h', '1d'];
   final List<String> _availableTimeframes = ['1h', '2h', '4h', '8h', '1d'];
+  double _riskPercentage = 0.25;
   
   // Secure storage for client-side keys
   final FlutterSecureStorage _storage = const FlutterSecureStorage();
@@ -304,12 +305,36 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
           decoration: InputDecoration(
             labelText: 'Custom Margin Allocation (USDT)',
             prefixIcon: const Icon(Icons.account_balance_wallet_outlined),
-            hintText: 'Leave empty to use 20-25% of balance',
+            hintText: 'Leave empty to use risk percentage below',
             suffixIcon: _buildHelpTooltip(
-              'Fixed USDT amount to use per trade. If empty, system uses 22.5% of your live CoinDCX balance.',
+              'Fixed USDT amount to use per trade. If empty, system uses your risk percentage of balance.',
             ),
           ),
           keyboardType: TextInputType.number,
+        ),
+        SizedBox(height: 24.h),
+        Text(
+          'Risk Per Trade: ${(_riskPercentage * 100).toInt()}% of Balance',
+          style: Theme.of(context).textTheme.bodyMedium,
+        ),
+        SizedBox(height: 8.h),
+        Slider(
+          value: _riskPercentage,
+          min: 0.03,
+          max: 0.50,
+          divisions: 47,
+          label: '${(_riskPercentage * 100).toInt()}%',
+          activeColor: AppTheme.primaryColor,
+          onChanged: (val) {
+            setState(() {
+              _riskPercentage = val;
+            });
+          },
+        ),
+        SizedBox(height: 8.h),
+        Text(
+          'Recommended: 15% - 25% for balanced portfolio protection.',
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppTheme.textSecondary),
         ),
         SizedBox(height: 16.h),
         Text(
@@ -721,6 +746,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
     final success = await provider.updateSettings({
       'margin': {
         'custom_margin_allocation': _customMargin.text.isEmpty ? null : double.tryParse(_customMargin.text),
+        'risk_percentage_per_trade': _riskPercentage,
         'scan_interval_minutes': _scanInterval,
       }
     });

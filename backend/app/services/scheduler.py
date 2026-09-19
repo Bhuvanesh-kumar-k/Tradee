@@ -84,7 +84,8 @@ async def market_scan_task():
                             if balance_data:
                                 total_balance = balance_data.get("balance", 0) or balance_data.get("total_balance", 0)
                                 if total_balance > 0:
-                                    capital = total_balance * 0.225
+                                    risk_pct = getattr(user, "risk_percentage_per_trade", 0.25)
+                                    capital = total_balance * risk_pct
                     
                     if capital is None or capital < 20:
                         capital = 20.0
@@ -186,7 +187,8 @@ async def user_specific_scan_task(user_id: int):
                     if balance_data:
                         total_balance = balance_data.get("balance", 0) or balance_data.get("total_balance", 0)
                         if total_balance > 0:
-                            capital = total_balance * 0.225
+                            risk_pct = getattr(user, "risk_percentage_per_trade", 0.25)
+                            capital = total_balance * risk_pct
             
             if capital is None or capital < 20:
                 capital = 20.0

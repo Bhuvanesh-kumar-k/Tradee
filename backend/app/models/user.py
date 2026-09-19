@@ -13,7 +13,8 @@ class User(Base):
     experience_level = Column(String, nullable=True)  # Beginner, Intermediate, Pro
     
     # Margin Settings
-    custom_margin_allocation = Column(Float, nullable=True)  # If None, use 20-25% of balance
+    custom_margin_allocation = Column(Float, nullable=True)  # If None, use risk_percentage_per_trade of balance
+    risk_percentage_per_trade = Column(Float, default=0.25, nullable=False)  # 0.03 (3%) to 0.50 (50%), default 0.25 (25%)
     scan_interval_minutes = Column(Integer, default=5)  # 3, 5, 7, 10, 15, 30
     
     # AI Settings (provider preference only, keys stored client-side)

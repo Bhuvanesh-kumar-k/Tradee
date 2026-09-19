@@ -99,7 +99,7 @@ async def verify_ai_key(
         # Check if the result is valid
         if result.get("verdict") in ["APPROVE", "REJECT"] and result.get("confidence", 0) > 0:
             current_user.ai_provider = verify_request.provider
-            current_user.encrypted_ai_api_key = encrypt_data(verify_request.api_key)
+            # AI keys are now stored client-side, not in database
             current_user.ai_enabled = True
             await db.commit()
             return {

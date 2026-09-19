@@ -13,6 +13,7 @@ class SettingsProvider with ChangeNotifier {
   Map<String, dynamic> get settings => _settings;
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
+  double get riskPercentage => ((_settings['risk_percentage_per_trade'] ?? 0.25) as num).toDouble();
   
   Future<void> fetchSettings() async {
     _isLoading = true;

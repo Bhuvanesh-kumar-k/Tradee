@@ -81,7 +81,8 @@ async def check_single_coin(
                     total_balance = float(balance_data.get("balance", 0) or balance_data.get("total_balance", 0) or balance_data.get("usdt_balance", 0) or 0.0)
                 
                 if total_balance > 0:
-                    capital = total_balance * 0.225
+                    risk_pct = getattr(current_user, "risk_percentage_per_trade", 0.25)
+                    capital = total_balance * risk_pct
         
         # Fallback if balance fetch failed or no keys
         if capital is None or capital < 20:

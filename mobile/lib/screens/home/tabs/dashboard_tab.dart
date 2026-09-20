@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:provider/provider.dart';
@@ -40,17 +41,13 @@ class _DashboardTabState extends State<DashboardTab> {
       try {
         final response = await ApiClient.get(Constants.balance);
         if (response.statusCode == 200) {
-          final data = Map<String, dynamic>.from(
-            // Parse JSON response
-            // Assuming API returns { "balance": 1234.56, "margin_in_use": 234.56 }
-            // Adjust based on actual API response structure
-            {}
-          );
-          _accountBalance = (data['balance'] ?? 0.0) as double;
-          _marginInUse = (data['margin_in_use'] ?? 0.0) as double;
+          final data = jsonDecode(response.body);
+          _accountBalance = ((data['balance'] ?? 0.0) as num).toDouble();
+          _marginInUse = ((data['margin_in_use'] ?? 0.0) as num).toDouble();
         }
       } catch (_) {
-        // On error, keep zeros
+        _accountBalance = 0.0;
+        _marginInUse = 0.0;
       }
     }
     

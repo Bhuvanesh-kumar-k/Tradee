@@ -24,7 +24,23 @@ class AuthProvider with ChangeNotifier {
   
   Future<void> _checkAuthStatus() async {
     final token = await _storage.read(key: 'access_token');
-    _isAuthenticated = token != null;
+    if (token != null) {
+      _isAuthenticated = true;
+      try {
+        final response = await ApiClient.get(Constants.settings);
+        if (response.statusCode == 200) {
+          final data = jsonDecode(response.body);
+          _user = {
+            'email': data['email'],
+            'name': data['name'],
+            'terms_accepted': data['terms_accepted'] ?? true,
+          };
+        }
+      } catch (_) {}
+    } else {
+      _isAuthenticated = false;
+      _user = null;
+    }
     notifyListeners();
   }
   

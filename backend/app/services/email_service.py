@@ -35,7 +35,7 @@ async def send_otp_email(email: str, otp_code: str) -> bool:
             import resend
             resend.api_key = settings.RESEND_API_KEY.strip()
             params = {
-                "from": "Tradee <onboarding@resend.dev>",
+                "from": "Tradee <auth@bzones.org>",
                 "to": [email],
                 "subject": f"{otp_code} is your Tradee verification code",
                 "html": html_content,

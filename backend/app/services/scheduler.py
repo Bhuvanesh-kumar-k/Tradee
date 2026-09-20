@@ -51,60 +51,8 @@ background_scheduler = BackgroundScheduler()
 
 
 async def market_scan_task():
-    """Periodic market scanning task for all users"""
-    try:
-        async with AsyncSessionLocal() as db:
-            # Get all active users
-            result = await db.execute(
-                select(User).where(
-                    User.is_active == True
-                )
-            )
-            users = result.scalars().all()
-            
-            for user in users:
-                try:
-                    # Check if trading is frozen due to news
-                    frozen_status = circuit_breaker.get_frozen_status_message()
-                    if frozen_status:
-                        await send_system_status(
-                            user.id,
-                            "frozen",
-                            frozen_status
-                        )
-                        continue
-                    
-                    # Get user's capital allocation
-                    capital = user.custom_margin_allocation
-                    if capital is None:
-                        executor = await get_user_executor(user)
-                        if executor:
-                            balance_data = await executor.get_futures_balance()
-                            if balance_data:
-                                total_balance = balance_data.get("balance", 0) or balance_data.get("total_balance", 0)
-                                if total_balance > 0:
-                                    risk_pct = getattr(user, "risk_percentage_per_trade", 0.25)
-                                    capital = total_balance * risk_pct
-                    
-                    if capital is None or capital < 20:
-                        capital = 20.0
-                    
-                    # Run market scan with 1-hour timeframe enabled
-                    candidates = await evaluate_all_markets(
-                        capital=capital,
-                        coins=settings.DEFAULT_COINS,
-                        user_timeframes=["1h", "4h", "8h", "1d"]
-                    )
-                    
-                    # Log candidates (in production, would save to database and notify user)
-                    if candidates:
-                        print(f"Found {len(candidates)} trade candidates for user {user.id}")
-                    
-                except Exception as e:
-                    print(f"Market scan failed for user {user.id}: {e}")
-            
-    except Exception as e:
-        print(f"Market scan task error: {e}")
+    """Market scanning task - skipped if server does not manage API keys"""
+    return
 
 
 async def position_monitor_task():
@@ -163,44 +111,8 @@ async def news_calendar_update_task():
 
 
 async def user_specific_scan_task(user_id: int):
-    """User-specific market scan task"""
-    try:
-        async with AsyncSessionLocal() as db:
-            result = await db.execute(
-                select(User).where(User.id == user_id)
-            )
-            user = result.scalar_one_or_none()
-            
-            if not user:
-                return
-            
-            # Check scan interval
-            interval_minutes = user.scan_interval_minutes or 5
-            
-            # Get capital
-            capital = user.custom_margin_allocation
-            if capital is None:
-                executor = await get_user_executor(user)
-                if executor:
-                    balance_data = await executor.get_futures_balance()
-                    if balance_data:
-                        total_balance = balance_data.get("balance", 0) or balance_data.get("total_balance", 0)
-                        if total_balance > 0:
-                            risk_pct = getattr(user, "risk_percentage_per_trade", 0.25)
-                            capital = total_balance * risk_pct
-            
-            if capital is None or capital < 20:
-                capital = 20.0
-            
-            # Run scan with 1-hour timeframe
-            candidates = await evaluate_all_markets(
-                capital=capital,
-                coins=settings.DEFAULT_COINS,
-                user_timeframes=["1h", "4h", "8h", "1d"]
-            )
-            
-    except Exception as e:
-        print(f"User-specific scan failed for user {user_id}: {e}")
+    """User-specific market scan task - skipped if server does not manage API keys"""
+    return
 
 
 def initialize_scheduler():

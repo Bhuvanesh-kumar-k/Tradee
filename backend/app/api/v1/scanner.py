@@ -168,3 +168,32 @@ async def get_scanner_logs(
     )
     logs = result.scalars().all()
     return [ScannerLogResponse.model_validate(log) for log in logs]
+
+
+@router.get("/balance")
+async def get_live_balance(
+    current_user: User = Depends(get_current_verified_user),
+    x_coindcx_key: str = Header(None, alias="XCoinDCXKey"),
+    x_coindcx_secret: str = Header(None, alias="XCoinDCXSecret"),
+):
+    """Fetch live CoinDCX balance using client-side ephemeral headers"""
+    if not x_coindcx_key or not x_coindcx_secret:
+        return {"balance": 0.0, "margin_in_use": 0.0, "currency": "USDT"}
+        
+    executor = CoinDCXExecutor(x_coindcx_key, x_coindcx_secret)
+    balance_data = await executor.get_futures_balance()
+    
+    total_balance = 0.0
+    if isinstance(balance_data, list):
+        for item in balance_data:
+            if isinstance(item, dict) and item.get("currency") in ["USDT", "USDT_FUTURES"]:
+                total_balance = float(item.get("balance", 0.0))
+                break
+    elif isinstance(balance_data, dict):
+        total_balance = float(balance_data.get("balance", 0) or balance_data.get("total_balance", 0) or balance_data.get("usdt_balance", 0) or 0.0)
+        
+    return {
+        "balance": total_balance,
+        "margin_in_use": 0.0,
+        "currency": "USDT"
+    }

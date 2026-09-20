@@ -19,17 +19,17 @@ async def get_user_settings(
     return {
         "email": current_user.email,
         "name": current_user.name,
-        "terms_accepted": current_user.terms_accepted,
         "experience_level": current_user.experience_level,
+        "terms_accepted": current_user.terms_accepted,
         "custom_margin_allocation": current_user.custom_margin_allocation,
-        "risk_percentage_per_trade": current_user.risk_percentage_per_trade,
+        "risk_percentage_per_trade": getattr(current_user, "risk_percentage_per_trade", 0.25),
         "scan_interval_minutes": current_user.scan_interval_minutes,
         "ai_provider": current_user.ai_provider,
         "ai_enabled": current_user.ai_enabled,
-        "telegram_api_id": current_user.telegram_api_id,
-        "telegram_channels": current_user.telegram_channels,
-        "has_coindcx_keys": False,  # Keys are now stored client-side
-        "has_ai_key": False  # AI keys are now stored client-side
+        "telegram_channels": current_user.telegram_channels or [],
+        "auto_trading_enabled": current_user.auto_trading_enabled,
+        "preferred_currency": current_user.preferred_currency,
+        "trading_timeframes": current_user.trading_timeframes or ["1h", "4h", "8h", "1d"]
     }
 
 

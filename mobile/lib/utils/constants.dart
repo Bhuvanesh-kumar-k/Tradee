@@ -17,6 +17,7 @@ class Constants {
   static const String verifyAiKey = '/settings/verify-ai-key';
   static const String scannerStatus = '/scanner/status';
   static const String checkCoin = '/scanner/check-coin';
+  static const String scanAll = '/scanner/scan-all';
   static const String scannerLogs = '/scanner/logs';
   static const String balance = '/scanner/balance';
   static const String activeTrades = '/trades/active';

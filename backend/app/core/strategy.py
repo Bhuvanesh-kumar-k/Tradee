@@ -34,7 +34,7 @@ async def get_btc_macro_trend() -> str:
 
 
 async def evaluate_pair(pair: str, capital: float, btc_trend: str, user_timeframes: list = None):
-    """Evaluate a single trading pair across multiple timeframes"""
+    """Evaluate a single trading pair across multiple timeframes with full diagnostics"""
     if user_timeframes is None:
         user_timeframes = settings.DEFAULT_TIMEFRAMES
     
@@ -47,29 +47,45 @@ async def evaluate_pair(pair: str, capital: float, btc_trend: str, user_timefram
     df_1d = await fetch_candles(pair, "1d")
     is_1d_bullish = False
     is_1d_bearish = False
+    macro_1d_status = "NEUTRAL"
     if df_1d is not None and len(df_1d) >= 100:
         df_1d = calculate_all_indicators(df_1d)
         closed_1d = df_1d.iloc[-2]
         is_1d_bullish = (closed_1d["close"] > closed_1d["ema50"]) and (closed_1d["close"] > closed_1d["ema200"])
         is_1d_bearish = (closed_1d["close"] < closed_1d["ema50"])
+        macro_1d_status = "BULLISH" if is_1d_bullish else ("BEARISH" if is_1d_bearish else "NEUTRAL")
 
     # 2. 1H Execution Confirmation Gate
     df_1h = await fetch_raw_candles(pair, interval="1h", limit=300)
     ltf_1h_bullish = False
     ltf_1h_bearish = False
+    ltf_1h_status = "NEUTRAL"
     if df_1h is not None and len(df_1h) >= 50:
         df_1h = calculate_all_indicators(df_1h)
         bar_1h = df_1h.iloc[-2]
         ltf_1h_bullish = bar_1h["close"] > bar_1h["ema50"]
         ltf_1h_bearish = bar_1h["close"] < bar_1h["ema50"]
+        ltf_1h_status = "BULLISH" if ltf_1h_bullish else ("BEARISH" if ltf_1h_bearish else "NEUTRAL")
 
-    # 3. Check 30m if available (optional gate)
-    df_30m = await fetch_candles(pair, "30m")
-    has_30m_data = df_30m is not None and len(df_30m) >= 50
+    # 3. Collect timeframe details for all timeframes
+    timeframe_details = []
 
     for tf in user_timeframes:
         df = await fetch_candles(pair, tf)
         if df is None or len(df) < 50:
+            timeframe_details.append({
+                "timeframe": tf,
+                "direction": "NEUTRAL",
+                "is_setup_valid": False,
+                "passed_checks": [],
+                "failed_checks": ["Insufficient data"],
+                "checklist": {},
+                "roi": None,
+                "entry": None,
+                "tp": None,
+                "sl": None,
+                "leverage": None
+            })
             continue
 
         df = calculate_all_indicators(df)
@@ -86,6 +102,8 @@ async def evaluate_pair(pair: str, capital: float, btc_trend: str, user_timefram
         direction = None
         sl = tp = net_roi = net_profit = commission = liq_price = None
         is_high_risk_macd = False
+        passed_checks = []
+        failed_checks = []
 
         long_checklist = {
             "BTC Macro Trend Bullish": (pair == settings.BTC_PAIR or btc_trend == "BULLISH"),
@@ -128,15 +146,35 @@ async def evaluate_pair(pair: str, capital: float, btc_trend: str, user_timefram
             active_checklist = short_checklist.copy()
         else:
             active_checklist = None
+            # Build failed checks from whichever checklist has more passes
+            long_passes = sum(long_checklist.values())
+            short_passes = sum(short_checklist.values())
+            if long_passes >= short_passes:
+                active_checklist = long_checklist
+                direction = "LONG" if long_passes > 0 else "NEUTRAL"
+            else:
+                active_checklist = short_checklist
+                direction = "SHORT" if short_passes > 0 else "NEUTRAL"
 
-        if direction:
+        # Build passed/failed checks
+        if active_checklist:
+            for check, passed in active_checklist.items():
+                if passed:
+                    passed_checks.append(check)
+                else:
+                    failed_checks.append(check)
+
+        is_setup_valid = False
+        if direction and direction != "NEUTRAL":
             # 1H Confluence Validation Gate
             ltf_aligned = True
             if tf in ["4h", "8h"]:
                 if direction == "LONG" and not ltf_1h_bullish:
                     ltf_aligned = False
+                    failed_checks.append("1H Trend Alignment")
                 elif direction == "SHORT" and not ltf_1h_bearish:
                     ltf_aligned = False
+                    failed_checks.append("1H Trend Alignment")
 
             if direction == "LONG":
                 sl = swing_low - (0.5 * atr)
@@ -147,6 +185,10 @@ async def evaluate_pair(pair: str, capital: float, btc_trend: str, user_timefram
                 sl_dist = live_entry - sl
                 safe_clearance = (sl > liq_price) and (sl_dist <= total_liq_dist * 0.60)
                 active_checklist["Liquidation Buffer (SL >= 40% Above Liq)"] = safe_clearance
+                if not safe_clearance:
+                    failed_checks.append("Liquidation Buffer (SL >= 40% Above Liq)")
+                else:
+                    passed_checks.append("Liquidation Buffer (SL >= 40% Above Liq)")
             else:
                 sl = swing_high + (0.5 * atr)
                 risk_distance = sl - live_entry
@@ -156,6 +198,10 @@ async def evaluate_pair(pair: str, capital: float, btc_trend: str, user_timefram
                 sl_dist = sl - live_entry
                 safe_clearance = (sl < liq_price) and (sl_dist <= total_liq_dist * 0.60)
                 active_checklist["Liquidation Buffer (SL >= 40% Below Liq)"] = safe_clearance
+                if not safe_clearance:
+                    failed_checks.append("Liquidation Buffer (SL >= 40% Below Liq)")
+                else:
+                    passed_checks.append("Liquidation Buffer (SL >= 40% Below Liq)")
 
             base_passed = all([v for k, v in active_checklist.items() if ("MACD" not in k or not is_high_risk_macd)])
             
@@ -169,6 +215,7 @@ async def evaluate_pair(pair: str, capital: float, btc_trend: str, user_timefram
                 total_account_growth = net_profit / capital
 
                 if net_roi >= settings.MIN_PROFIT_ROI:
+                    is_setup_valid = True
                     candidate_trades.append({
                         "Coin Pair": clean_pair,
                         "Timeframe": tf,
@@ -197,8 +244,31 @@ async def evaluate_pair(pair: str, capital: float, btc_trend: str, user_timefram
                             "atr": atr
                         }
                     })
+                else:
+                    failed_checks.append(f"Net ROI >= {settings.MIN_PROFIT_ROI * 100}%")
 
-    return candidate_trades
+        timeframe_details.append({
+            "timeframe": tf,
+            "direction": direction if direction else "NEUTRAL",
+            "is_setup_valid": is_setup_valid,
+            "passed_checks": passed_checks,
+            "failed_checks": failed_checks,
+            "checklist": active_checklist or {},
+            "roi": net_roi if is_setup_valid else None,
+            "entry": live_entry if is_setup_valid else None,
+            "tp": tp if is_setup_valid else None,
+            "sl": sl if is_setup_valid else None,
+            "leverage": leverage if is_setup_valid else None
+        })
+
+    return {
+        "coin_pair": clean_pair,
+        "macro_1d": macro_1d_status,
+        "ltf_1h": ltf_1h_status,
+        "btc_macro": btc_trend,
+        "timeframe_details": timeframe_details,
+        "candidate_trades": candidate_trades
+    }
 
 
 async def evaluate_all_markets(capital: float, coins: list = None, user_timeframes: list = None):

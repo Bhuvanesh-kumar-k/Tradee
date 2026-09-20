@@ -38,11 +38,13 @@ class ScannerLog {
 class ScannerProvider with ChangeNotifier {
   Map<String, dynamic> _status = {};
   List<ScannerLog> _logs = [];
+  Map<String, dynamic> _marketScanData = {};
   bool _isLoading = false;
   String? _errorMessage;
   
   Map<String, dynamic> get status => _status;
   List<ScannerLog> get logs => _logs;
+  Map<String, dynamic> get marketScanData => _marketScanData;
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
   
@@ -110,6 +112,29 @@ class ScannerProvider with ChangeNotifier {
       _isLoading = false;
       notifyListeners();
       return null;
+    }
+  }
+  
+  Future<void> scanAllCoins() async {
+    _isLoading = true;
+    notifyListeners();
+    
+    try {
+      final response = await ApiClient.get(Constants.scanAll);
+      
+      if (response.statusCode == 200) {
+        _marketScanData = jsonDecode(response.body);
+        _isLoading = false;
+        notifyListeners();
+      } else {
+        _errorMessage = 'Failed to scan all coins';
+        _isLoading = false;
+        notifyListeners();
+      }
+    } catch (e) {
+      _errorMessage = 'Network error: $e';
+      _isLoading = false;
+      notifyListeners();
     }
   }
   

@@ -20,233 +20,289 @@ class _ScannerTabState extends State<ScannerTab> {
 
   Future<void> _loadData() async {
     final scannerProvider = context.read<ScannerProvider>();
-    await Future.wait([
-      scannerProvider.fetchStatus(),
-      scannerProvider.fetchLogs(),
-    ]);
+    await scannerProvider.scanAllCoins();
   }
 
   @override
   Widget build(BuildContext context) {
     final scannerProvider = context.watch<ScannerProvider>();
 
-    return RefreshIndicator(
-      onRefresh: _loadData,
-      child: SingleChildScrollView(
-        padding: EdgeInsets.all(16.w),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Status Card
-            _buildStatusCard(scannerProvider.status),
-            SizedBox(height: 16.h),
-            
-            // Scanner Logs
-            Text(
-              'Live Scanner Logs',
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-            SizedBox(height: 12.h),
-            scannerProvider.logs.isEmpty
-                ? _buildEmptyState('No scanner logs yet')
-                : ListView.builder(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    itemCount: scannerProvider.logs.length,
-                    itemBuilder: (context, index) {
-                      return _buildLogCard(scannerProvider.logs[index]);
-                    },
-                  ),
-          ],
+    return Column(
+      children: [
+        // Header with refresh button
+        _buildHeader(scannerProvider),
+        
+        // Content
+        Expanded(
+          child: scannerProvider.isLoading
+              ? _buildLoadingState()
+              : scannerProvider.marketScanData.isEmpty
+                  ? _buildEmptyState('Tap Scan to analyze market')
+                  : _buildMarketScanFeed(scannerProvider.marketScanData),
         ),
-      ),
+      ],
     );
   }
 
-  Widget _buildStatusCard(Map<String, dynamic> status) {
-    final isFrozen = status['status'] == 'frozen';
+  Widget _buildHeader(ScannerProvider scannerProvider) {
+    final btcTrend = scannerProvider.marketScanData['btc_macro_trend'] ?? 'NEUTRAL';
     
     return Container(
       padding: EdgeInsets.all(16.w),
       decoration: BoxDecoration(
-        color: isFrozen 
-            ? AppTheme.warningColor.withValues(alpha: 0.2)
-            : AppTheme.successColor.withValues(alpha: 0.2),
-        borderRadius: BorderRadius.circular(12.r),
-        border: Border.all(
-          color: isFrozen ? AppTheme.warningColor : AppTheme.successColor,
-          width: 1,
+        color: AppTheme.cardColor,
+        border: Border(
+          bottom: BorderSide(color: AppTheme.primaryColor.withValues(alpha: 0.2)),
         ),
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Icon(
-                isFrozen ? Icons.pause_circle_outline : Icons.play_circle_outline,
-                color: isFrozen ? AppTheme.warningColor : AppTheme.successColor,
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Market Scanner',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  SizedBox(height: 4.h),
+                  Row(
+                    children: [
+                      _buildTrendPill('BTC 1D', btcTrend),
+                      SizedBox(width: 8.w),
+                      Text(
+                        'Open Slots: 3/3',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: AppTheme.textSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
-              SizedBox(width: 8.w),
-              Text(
-                isFrozen ? 'Scanner Paused' : 'Scanner Active',
-                style: Theme.of(context).textTheme.titleMedium,
+              ElevatedButton.icon(
+                onPressed: scannerProvider.isLoading ? null : _loadData,
+                icon: scannerProvider.isLoading
+                    ? SizedBox(
+                        width: 16.sp,
+                        height: 16.sp,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      )
+                    : const Icon(Icons.refresh),
+                label: const Text('Scan Now'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTheme.primaryColor,
+                ),
               ),
             ],
           ),
-          SizedBox(height: 8.h),
-          Text(
-            status['message'] ?? 'System operating normally',
-            style: Theme.of(context).textTheme.bodySmall,
-          ),
-          if (status['upcoming_events'] != null && status['upcoming_events'].isNotEmpty)
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                SizedBox(height: 12.h),
-                Text(
-                  'Upcoming Events:',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                SizedBox(height: 8.h),
-                ...List.generate(
-                  status['upcoming_events'].take(3).length,
-                  (index) => Padding(
-                    padding: EdgeInsets.only(bottom: 4.h),
-                    child: Text(
-                      '• ${status['upcoming_events'][index]['name']} at ${status['upcoming_events'][index]['time_ist']}',
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  ),
-                ),
-              ],
-            ),
         ],
       ),
     );
   }
 
-  Widget _buildLogCard(ScannerLog log) {
-    return Card(
-      margin: EdgeInsets.only(bottom: 12.h),
-      child: Padding(
-        padding: EdgeInsets.all(16.w),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  log.coinPair,
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-                Container(
-                  padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 4.h),
-                  decoration: BoxDecoration(
-                    color: AppTheme.cardColor,
-                    borderRadius: BorderRadius.circular(8.r),
-                  ),
-                  child: Text(
-                    log.timeframe,
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ),
-              ],
-            ),
-            SizedBox(height: 12.h),
-            Row(
-              children: [
-                _buildIndicatorBadge('Trend', log.trendStatus),
-                SizedBox(width: 8.w),
-                _buildIndicatorBadge('Signal', log.signalDetected),
-              ],
-            ),
-            if (log.indicatorValues != null) ...[
-              SizedBox(height: 12.h),
-              Wrap(
-                spacing: 8.w,
-                runSpacing: 8.h,
-                children: [
-                  _buildIndicatorChip('RSI', log.indicatorValues!['rsi']?.toStringAsFixed(1)),
-                  _buildIndicatorChip('ADX', log.indicatorValues!['adx']?.toStringAsFixed(1)),
-                  _buildIndicatorChip('MACD', log.indicatorValues!['macd_hist']?.toStringAsFixed(3)),
-                ],
-              ),
-            ],
-            SizedBox(height: 8.h),
-            Text(
-              _formatTime(log.scanTime),
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: AppTheme.textSecondary,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildIndicatorBadge(String label, String? value) {
-    if (value == null) return const SizedBox.shrink();
+  Widget _buildTrendPill(String label, String trend) {
+    Color bgColor;
+    Color textColor;
     
-    Color color;
-    if (value == 'BULLISH' || value == 'LONG') {
-      color = AppTheme.successColor;
-    } else if (value == 'BEARISH' || value == 'SHORT') {
-      color = AppTheme.dangerColor;
+    if (trend == 'BULLISH') {
+      bgColor = AppTheme.successColor.withValues(alpha: 0.2);
+      textColor = AppTheme.successColor;
+    } else if (trend == 'BEARISH') {
+      bgColor = AppTheme.dangerColor.withValues(alpha: 0.2);
+      textColor = AppTheme.dangerColor;
     } else {
-      color = AppTheme.textSecondary;
+      bgColor = AppTheme.textSecondary.withValues(alpha: 0.2);
+      textColor = AppTheme.textSecondary;
     }
     
     return Container(
-      padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 4.h),
+      padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 6.h),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.2),
-        borderRadius: BorderRadius.circular(8.r),
+        color: bgColor,
+        borderRadius: BorderRadius.circular(20.r),
       ),
       child: Text(
-        '$label: $value',
+        '$label: $trend',
         style: TextStyle(
-          color: color,
-          fontSize: 12.sp,
+          color: textColor,
+          fontSize: 11.sp,
           fontWeight: FontWeight.bold,
         ),
       ),
     );
   }
 
-  Widget _buildIndicatorChip(String label, String? value) {
-    if (value == null) return const SizedBox.shrink();
-    
-    return Container(
-      padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 4.h),
-      decoration: BoxDecoration(
-        color: AppTheme.cardColor,
-        borderRadius: BorderRadius.circular(8.r),
-      ),
-      child: Text(
-        '$label: $value',
-        style: Theme.of(context).textTheme.bodySmall,
+  Widget _buildLoadingState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          CircularProgressIndicator(color: AppTheme.primaryColor),
+          SizedBox(height: 16.h),
+          Text(
+            'Scanning market...',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: AppTheme.textSecondary,
+            ),
+          ),
+        ],
       ),
     );
   }
 
-  String _formatTime(DateTime dateTime) {
-    final now = DateTime.now();
-    final difference = now.difference(dateTime);
+  Widget _buildMarketScanFeed(Map<String, dynamic> data) {
+    final coins = List<Map<String, dynamic>>.from(data['coins'] ?? []);
     
-    if (difference.inMinutes < 1) {
-      return 'Just now';
-    } else if (difference.inMinutes < 60) {
-      return '${difference.inMinutes}m ago';
-    } else if (difference.inHours < 24) {
-      return '${difference.inHours}h ago';
+    return SingleChildScrollView(
+      padding: EdgeInsets.all(16.w),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Coin Status Feed',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          SizedBox(height: 12.h),
+          ...coins.map((coin) => _buildCoinCard(coin)).toList(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCoinCard(Map<String, dynamic> coin) {
+    final coinPair = coin['coin_pair'] ?? '';
+    final macro1d = coin['macro_1d_trend'] ?? 'NEUTRAL';
+    final ltf1h = coin['ltf_1h_trend'] ?? 'NEUTRAL';
+    final hasValidSetup = coin['has_valid_setup'] ?? false;
+    final timeframeDetails = List<Map<String, dynamic>>.from(coin['timeframe_details'] ?? []);
+    
+    Color cardColor;
+    if (hasValidSetup) {
+      cardColor = AppTheme.successColor.withValues(alpha: 0.1);
+    } else if (macro1d == 'BEARISH') {
+      cardColor = AppTheme.dangerColor.withValues(alpha: 0.1);
     } else {
-      return '${difference.inDays}d ago';
+      cardColor = AppTheme.cardColor;
     }
+    
+    return Card(
+      margin: EdgeInsets.only(bottom: 12.h),
+      color: cardColor,
+      child: ExpansionTile(
+        title: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              coinPair,
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            Row(
+              children: [
+                _buildTrendPill('1D', macro1d),
+                SizedBox(width: 4.w),
+                _buildTrendPill('1H', ltf1h),
+              ],
+            ),
+          ],
+        ),
+        subtitle: hasValidSetup
+            ? Text(
+                '✓ Valid setup detected',
+                style: TextStyle(
+                  color: AppTheme.successColor,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 12.sp,
+                ),
+              )
+            : null,
+        children: [
+          Padding(
+            padding: EdgeInsets.all(16.w),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Timeframe Analysis',
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                SizedBox(height: 12.h),
+                ...timeframeDetails.map((tf) => _buildMiniTimeframeDetail(tf)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMiniTimeframeDetail(Map<String, dynamic> tf) {
+    final direction = tf['direction'] ?? 'NEUTRAL';
+    final failedChecks = List<String>.from(tf['failed_checks'] ?? []);
+    
+    return Container(
+      margin: EdgeInsets.only(bottom: 8.h),
+      padding: EdgeInsets.all(12.w),
+      decoration: BoxDecoration(
+        color: AppTheme.cardColor,
+        borderRadius: BorderRadius.circular(8.r),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                tf['timeframe'],
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              Container(
+                padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 4.h),
+                decoration: BoxDecoration(
+                  color: direction == 'LONG'
+                      ? AppTheme.successColor.withValues(alpha: 0.2)
+                      : direction == 'SHORT'
+                          ? AppTheme.dangerColor.withValues(alpha: 0.2)
+                          : AppTheme.textSecondary.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(12.r),
+                ),
+                child: Text(
+                  direction,
+                  style: TextStyle(
+                    color: direction == 'LONG'
+                        ? AppTheme.successColor
+                        : direction == 'SHORT'
+                            ? AppTheme.dangerColor
+                            : AppTheme.textSecondary,
+                    fontSize: 11.sp,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (failedChecks.isNotEmpty) ...[
+            SizedBox(height: 6.h),
+            Text(
+              'Failed: ${failedChecks.take(2).join(", ")}${failedChecks.length > 2 ? "..." : ""}',
+              style: TextStyle(
+                color: AppTheme.dangerColor,
+                fontSize: 10.sp,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
   }
 
   Widget _buildEmptyState(String message) {

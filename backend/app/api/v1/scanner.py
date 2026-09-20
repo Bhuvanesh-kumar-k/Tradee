@@ -42,7 +42,9 @@ async def get_scanner_status(
 async def check_single_coin(
     request: SingleCoinCheckRequest,
     current_user: User = Depends(get_current_verified_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    x_coindcx_key: str = Header(None, alias="XCoinDCXKey"),
+    x_coindcx_secret: str = Header(None, alias="XCoinDCXSecret"),
 ):
     """Run on-demand analysis for a single coin"""
     # Check circuit breaker
@@ -54,11 +56,20 @@ async def check_single_coin(
         )
     
     # Normalize coin pair
-    coin_pair = request.coin_pair.upper()
-    if not coin_pair.startswith("B-"):
-        coin_pair = f"B-{coin_pair}"
-    if not coin_pair.endswith("_USDT"):
-        coin_pair = f"{coin_pair}_USDT"
+    raw_pair = request.coin_pair.strip().upper()
+    raw_pair = raw_pair.replace("/", "_").replace("-", "_")
+    
+    # Remove leading B_ if user typed it
+    if raw_pair.startswith("B_"):
+        raw_pair = raw_pair[2:]
+        
+    if not raw_pair.endswith("_USDT"):
+        if raw_pair.endswith("USDT"):
+            raw_pair = f"{raw_pair[:-4]}_USDT"
+        else:
+            raw_pair = f"{raw_pair}_USDT"
+            
+    coin_pair = f"B-{raw_pair}"
     
     # Get BTC trend
     btc_trend = await get_market_trend("B-BTC_USDT", "1d")
@@ -103,6 +114,17 @@ async def check_single_coin(
     )
     
     if not trades:
+        log = ScannerLog(
+            user_id=current_user.id,
+            coin_pair=coin_pair,
+            timeframe="1h",
+            trend_status=btc_trend,
+            signal_detected="NONE",
+            checklist_passed={"status": "No entry confluence on closed bars"}
+        )
+        db.add(log)
+        await db.commit()
+        
         return CoinAnalysisResult(
             coin_pair=coin_pair,
             timeframes=[],

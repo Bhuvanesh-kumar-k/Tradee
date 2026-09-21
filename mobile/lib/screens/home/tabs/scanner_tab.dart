@@ -414,7 +414,7 @@ class _ScannerTabState extends State<ScannerTab> {
       child: Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: isLiberal ? const Color(0xFFD29922).withOpacity(0.1) : const Color(0xFF0D1117),
+          color: isLiberal ? const Color(0xFFD29922).withValues(alpha: 0.1) : const Color(0xFF0D1117),
           borderRadius: BorderRadius.circular(10),
           border: Border.all(
             color: isLiberal ? const Color(0xFFD29922) : const Color(0xFF30363D),

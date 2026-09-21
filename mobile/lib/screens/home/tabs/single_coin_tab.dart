@@ -4,6 +4,7 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:provider/provider.dart';
 import 'package:crypto_trading_app/providers/scanner_provider.dart';
 import 'package:crypto_trading_app/utils/theme.dart';
+import 'package:crypto_trading_app/widgets/trading_rules_dialog.dart';
 
 class UpperCaseTextFormatter extends TextInputFormatter {
   @override
@@ -82,6 +83,8 @@ class _SingleCoinTabState extends State<SingleCoinTab> {
                 Expanded(
                   child: TextFormField(
                     controller: _coinController,
+                    textCapitalization: TextCapitalization.characters,
+                    inputFormatters: [UpperCaseTextFormatter()],
                     decoration: const InputDecoration(
                       labelText: 'Coin Symbol (e.g., BTC, ETH)',
                       prefixIcon: Icon(Icons.search),
@@ -496,101 +499,6 @@ class _SingleCoinTabState extends State<SingleCoinTab> {
             style: Theme.of(context).textTheme.bodyMedium,
           ),
         ],
-      ),
-    );
-  }
-
-  void showTradingRulesDialog(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: const Color(0xFF161B22),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) => DraggableScrollableSheet(
-        initialChildSize: 0.75,
-        maxChildSize: 0.95,
-        minChildSize: 0.5,
-        expand: false,
-        builder: (context, scrollController) => Padding(
-          padding: const EdgeInsets.all(20.0),
-          child: ListView(
-            controller: scrollController,
-            children: [
-              Row(
-                children: const [
-                  Icon(Icons.verified_outlined, color: Color(0xFF00D4AA), size: 24),
-                  SizedBox(width: 10),
-                  Text(
-                    'Trading Criteria & Checks',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                'Before any trade is approved or taken by our engine, it must strictly pass these multi-timeframe quantitative filters:',
-                style: TextStyle(color: Color(0xFF8B949E), fontSize: 13),
-              ),
-              const SizedBox(height: 16),
-              _buildRuleItem('1. Macro Trend Confluence (1D)', 'Bitcoin (BTC) and the selected coin must align with EMA 50 & EMA 200 on 1D candles.'),
-              _buildRuleItem('2. Execution Alignment (1H)', 'Lower timeframe candle close must align with EMA 50 (above for LONG, below for SHORT).'),
-              _buildRuleItem('3. ADX >= 20 (Non-Choppy)', 'Average Directional Index must confirm genuine trend momentum rather than sideways whipsaw.'),
-              _buildRuleItem('4. RSI Pullback Zone', 'Relative Strength Index (RSI 14) must reside between 40-60 to prevent buying at exhaustion peaks.'),
-              _buildRuleItem('5. Volume Confirmation (>= 80% SMA20)', 'Candle volume must confirm liquidity and support at least 80% of its 20-period moving average.'),
-              _buildRuleItem('6. Liquidation Buffer (Safe Distance)', 'Stop-loss distance must maintain >= 40% margin clearance from isolated liquidation price.'),
-              _buildRuleItem('7. MACD Momentum (Liberal Gate)', 'MACD histogram expansion is checked. If MACD fails but all other criteria pass, setup is tagged HIGH-RISK and leverage is bounded to 5x.', isLiberal: true),
-              _buildRuleItem('8. Minimum Net ROI >= 20%', 'After accounting for taker fees and slippage buffers, minimum projected ROI to TP must meet or exceed 20%.'),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildRuleItem(String title, String description, {bool isLiberal = false}) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12.0),
-      child: Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: isLiberal ? const Color(0xFFD29922).withValues(alpha: 0.1) : const Color(0xFF0D1117),
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(
-            color: isLiberal ? const Color(0xFFD29922) : const Color(0xFF30363D),
-          ),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Text(
-                  title,
-                  style: TextStyle(
-                    color: isLiberal ? const Color(0xFFD29922) : const Color(0xFF00D4AA),
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14,
-                  ),
-                ),
-                if (isLiberal) ...[
-                  const SizedBox(width: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFD29922),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: const Text('LIBERAL', style: TextStyle(color: Colors.black, fontSize: 10, fontWeight: FontWeight.bold)),
-                  ),
-                ],
-              ],
-            ),
-            const SizedBox(height: 4),
-            Text(description, style: const TextStyle(color: Color(0xFFE6EDF3), fontSize: 12)),
-          ],
-        ),
       ),
     );
   }

@@ -23,6 +23,11 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
   final TextEditingController _coindcxApiKey = TextEditingController();
   final TextEditingController _coindcxApiSecret = TextEditingController();
   
+  // Binance controllers
+  final TextEditingController _binanceApiKey = TextEditingController();
+  final TextEditingController _binanceApiSecret = TextEditingController();
+  bool _binanceTestnet = true;
+  
   // Margin controllers
   final TextEditingController _customMargin = TextEditingController();
   int? _scanInterval;
@@ -49,7 +54,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 5, vsync: this);
+    _tabController = TabController(length: 6, vsync: this);
     _loadSettings();
   }
 
@@ -58,6 +63,8 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
     _tabController.dispose();
     _coindcxApiKey.dispose();
     _coindcxApiSecret.dispose();
+    _binanceApiKey.dispose();
+    _binanceApiSecret.dispose();
     _customMargin.dispose();
     _aiKey.dispose();
     _telegramApiId.dispose();
@@ -73,6 +80,9 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
     // Load keys from secure storage
     final coindcxKey = await _storage.read(key: 'coindcx_api_key');
     final coindcxSecret = await _storage.read(key: 'coindcx_api_secret');
+    final binanceKey = await _storage.read(key: 'binance_api_key');
+    final binanceSecret = await _storage.read(key: 'binance_api_secret');
+    final binanceTestnet = await _storage.read(key: 'binance_testnet');
     final aiKey = await _storage.read(key: 'ai_api_key');
     final aiProvider = await _storage.read(key: 'ai_provider');
     final telegramApiId = await _storage.read(key: 'telegram_api_id');
@@ -90,6 +100,20 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
     } else {
       _coindcxApiSecret.text = '';
     }
+    
+    if (binanceKey != null && binanceKey.isNotEmpty) {
+      _binanceApiKey.text = '••••••••••••••••';
+    } else {
+      _binanceApiKey.text = '';
+    }
+    
+    if (binanceSecret != null && binanceSecret.isNotEmpty) {
+      _binanceApiSecret.text = '••••••••••••••••';
+    } else {
+      _binanceApiSecret.text = '';
+    }
+    
+    _binanceTestnet = binanceTestnet == 'true';
     
     _customMargin.text = settings['custom_margin_allocation']?.toString() ?? '';
     _scanInterval = settings['scan_interval_minutes'] ?? 5;
@@ -140,6 +164,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
             isScrollable: true,
             tabs: const [
               Tab(text: 'CoinDCX'),
+              Tab(text: 'Binance'),
               Tab(text: 'Margin'),
               Tab(text: 'AI'),
               Tab(text: 'Telegram'),
@@ -153,6 +178,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
               controller: _tabController,
               children: [
                 _buildCoinDCXTab(settingsProvider),
+                _buildBinanceTab(),
                 _buildMarginTab(settingsProvider),
                 _buildAITab(settingsProvider),
                 _buildTelegramTab(settingsProvider),
@@ -285,6 +311,95 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
           ),
       ],
     );
+  }
+
+  Widget _buildBinanceTab() {
+    return ListView(
+      padding: EdgeInsets.all(16.w),
+      children: [
+        Text(
+          'Binance Futures API Credentials',
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
+        SizedBox(height: 16.h),
+        _buildHelpText(
+          'Get your API credentials from Binance dashboard under API Management. '
+          'Enable futures trading permissions for full functionality.',
+        ),
+        SizedBox(height: 16.h),
+        TextFormField(
+          controller: _binanceApiKey,
+          decoration: InputDecoration(
+            labelText: 'API Key',
+            prefixIcon: const Icon(Icons.key_outlined),
+            suffixIcon: _buildHelpTooltip(
+              'Your Binance API Key. Found in your Binance account API Management section.',
+            ),
+          ),
+          obscureText: true,
+        ),
+        SizedBox(height: 16.h),
+        TextFormField(
+          controller: _binanceApiSecret,
+          decoration: InputDecoration(
+            labelText: 'API Secret',
+            prefixIcon: const Icon(Icons.vpn_key_outlined),
+            suffixIcon: _buildHelpTooltip(
+              'Your Binance API Secret. Keep this confidential and never share it.',
+            ),
+          ),
+          obscureText: true,
+        ),
+        SizedBox(height: 16.h),
+        SwitchListTile(
+          title: const Text('Use Futures Testnet (Sandbox)'),
+          subtitle: const Text('Trade with fake USDT before risking real capital'),
+          value: _binanceTestnet,
+          onChanged: (value) {
+            setState(() {
+              _binanceTestnet = value;
+            });
+          },
+        ),
+        SizedBox(height: 16.h),
+        ElevatedButton(
+          onPressed: () => _saveBinanceSettings(),
+          child: const Text('Save Credentials'),
+        ),
+        SizedBox(height: 8.h),
+        Container(
+          padding: EdgeInsets.all(12.w),
+          decoration: BoxDecoration(
+            color: AppTheme.warningColor.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(8.r),
+            border: Border.all(color: AppTheme.warningColor.withValues(alpha: 0.3)),
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.info_outline, color: AppTheme.warningColor, size: 20.sp),
+              SizedBox(width: 8.w),
+              Expanded(
+                child: Text(
+                  'Keys are stored locally on your device. Never share them with anyone.',
+                  style: TextStyle(color: AppTheme.warningColor, fontSize: 12.sp),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _saveBinanceSettings() async {
+    await _storage.write(key: 'binance_api_key', value: _binanceApiKey.text.trim());
+    await _storage.write(key: 'binance_api_secret', value: _binanceApiSecret.text.trim());
+    await _storage.write(key: 'binance_testnet', value: _binanceTestnet.toString());
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Binance credentials saved securely on device')),
+      );
+    }
   }
 
   Widget _buildMarginTab(SettingsProvider provider) {

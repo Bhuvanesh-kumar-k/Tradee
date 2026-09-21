@@ -11,6 +11,9 @@ class ApiClient {
     final token = await _storage.read(key: 'access_token');
     final coindcxKey = await _storage.read(key: 'coindcx_api_key');
     final coindcxSecret = await _storage.read(key: 'coindcx_api_secret');
+    final binanceKey = await _storage.read(key: 'binance_api_key');
+    final binanceSecret = await _storage.read(key: 'binance_api_secret');
+    final binanceTestnet = await _storage.read(key: 'binance_testnet');
     final aiKey = await _storage.read(key: 'ai_api_key');
     final aiProvider = await _storage.read(key: 'ai_provider');
     final telegramApiId = await _storage.read(key: 'telegram_api_id');
@@ -21,6 +24,9 @@ class ApiClient {
       if (token != null) 'Authorization': 'Bearer $token',
       if (coindcxKey != null) 'XCoinDCXKey': coindcxKey,
       if (coindcxSecret != null) 'XCoinDCXSecret': coindcxSecret,
+      if (binanceKey != null) 'XBinanceKey': binanceKey,
+      if (binanceSecret != null) 'XBinanceSecret': binanceSecret,
+      if (binanceTestnet != null) 'XBinanceTestnet': binanceTestnet,
       if (aiKey != null) 'XAIKey': aiKey,
       if (aiProvider != null) 'XAIProvider': aiProvider,
       if (telegramApiId != null) 'XTelegramApiId': telegramApiId,

@@ -846,13 +846,61 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
   }
 
   Future<void> _saveCoinDCXSettings() async {
-    // Save directly to secure storage
-    await _storage.write(key: 'coindcx_api_key', value: _coindcxApiKey.text);
-    await _storage.write(key: 'coindcx_api_secret', value: _coindcxApiSecret.text);
+    final apiKey = _coindcxApiKey.text.trim();
+    final apiSecret = _coindcxApiSecret.text.trim();
+    
+    if (apiKey.isEmpty || apiSecret.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please enter both API key and secret')),
+        );
+      }
+      return;
+    }
+    
+    // Show loading indicator
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('CoinDCX credentials saved securely on your device')),
+        const SnackBar(content: Text('Verifying CoinDCX credentials...')),
       );
+    }
+    
+    // Verify with backend before saving
+    try {
+      final response = await ApiClient.post(
+        Constants.verifyCoinDCXKeys,
+        body: {},
+      );
+      
+      if (response.statusCode == 200) {
+        // Verification successful, save to secure storage
+        await _storage.write(key: 'coindcx_api_key', value: apiKey);
+        await _storage.write(key: 'coindcx_api_secret', value: apiSecret);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('CoinDCX credentials verified and saved'),
+              backgroundColor: AppTheme.successColor,
+            ),
+          );
+        }
+      } else {
+        final error = jsonDecode(response.body);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Verification failed: ${error['detail'] ?? 'Invalid credentials'}'),
+              backgroundColor: AppTheme.dangerColor,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Verification error: $e'),
+            backgroundColor: AppTheme.dangerColor,
+          ),
+        );
+      }
     }
   }
 
@@ -886,46 +934,129 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
       return;
     }
     
-    // Save to secure storage
-    await _storage.write(key: 'ai_api_key', value: _aiKey.text);
-    await _storage.write(key: 'ai_provider', value: _aiProvider!);
+    // Show loading indicator
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Verifying AI key...')),
+      );
+    }
     
-    // Verify with backend (key not stored there)
-    final provider = context.read<SettingsProvider>();
-    final success = await provider.verifyAiKey(_aiProvider!, _aiKey.text);
-    if (success && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('AI key verified and saved securely on your device')),
+    // Verify with backend before saving
+    try {
+      final response = await ApiClient.post(
+        Constants.verifyAiKey,
+        body: {
+          'provider': _aiProvider,
+          'api_key': _aiKey.text.trim(),
+        },
       );
-    } else if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Verification failed: ${provider.errorMessage}')),
-      );
+      
+      if (response.statusCode == 200) {
+        // Verification successful, save to secure storage
+        await _storage.write(key: 'ai_api_key', value: _aiKey.text.trim());
+        await _storage.write(key: 'ai_provider', value: _aiProvider!);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('AI key verified and saved securely on your device'),
+              backgroundColor: AppTheme.successColor,
+            ),
+          );
+        }
+      } else {
+        final error = jsonDecode(response.body);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Verification failed: ${error['detail'] ?? 'Invalid API key'}'),
+              backgroundColor: AppTheme.dangerColor,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Verification error: $e'),
+            backgroundColor: AppTheme.dangerColor,
+          ),
+        );
+      }
     }
   }
 
   Future<void> _saveTelegramSettings() async {
-    // Save credentials to secure storage
-    await _storage.write(key: 'telegram_api_id', value: _telegramApiId.text);
-    await _storage.write(key: 'telegram_api_hash', value: _telegramApiHash.text);
+    final apiId = _telegramApiId.text.trim();
+    final apiHash = _telegramApiHash.text.trim();
     
-    // Save channels to backend (non-sensitive data)
-    final channelsList = _telegramChannels.text
-        .split(',')
-        .map((s) => s.trim())
-        .where((s) => s.isNotEmpty)
-        .toList();
-    
-    final provider = context.read<SettingsProvider>();
-    final success = await provider.updateSettings({
-      'telegram': {
-        'channels': channelsList,
+    if (apiId.isEmpty || apiHash.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please enter both API ID and Hash')),
+        );
       }
-    });
-    if (success && mounted) {
+      return;
+    }
+    
+    // Show loading indicator
+    if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Telegram settings saved securely on your device')),
+        const SnackBar(content: Text('Verifying Telegram credentials...')),
       );
+    }
+    
+    // Verify with backend before saving
+    try {
+      final response = await ApiClient.post(
+        Constants.verifyTelegramCredentials,
+        body: {
+          'api_id': apiId,
+          'api_hash': apiHash,
+        },
+      );
+      
+      if (response.statusCode == 200) {
+        // Verification successful, save to secure storage
+        await _storage.write(key: 'telegram_api_id', value: apiId);
+        await _storage.write(key: 'telegram_api_hash', value: apiHash);
+        
+        // Save channels to backend (non-sensitive data)
+        final channelsList = _telegramChannels.text
+            .split(',')
+            .map((s) => s.trim())
+            .where((s) => s.isNotEmpty)
+            .toList();
+        
+        final provider = context.read<SettingsProvider>();
+        final success = await provider.updateSettings({
+          'telegram': {
+            'channels': channelsList,
+          }
+        });
+        
+        if (success && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Telegram credentials verified and saved'),
+              backgroundColor: AppTheme.successColor,
+            ),
+          );
+        }
+      } else {
+        final error = jsonDecode(response.body);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Verification failed: ${error['detail'] ?? 'Invalid credentials'}'),
+              backgroundColor: AppTheme.dangerColor,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Verification error: $e'),
+            backgroundColor: AppTheme.dangerColor,
+          ),
+        );
+      }
     }
   }
 
@@ -1056,6 +1187,54 @@ INDICATORS USED
         const SnackBar(content: Text('Please select at least one timeframe')),
       );
       return;
+    }
+    
+    // If enabling auto trading, verify CoinDCX keys are present and valid
+    if (_autoTradingEnabled) {
+      final coindcxKey = await _storage.read(key: 'coindcx_api_key');
+      final coindcxSecret = await _storage.read(key: 'coindcx_api_secret');
+      
+      if (coindcxKey == null || coindcxKey.isEmpty || coindcxSecret == null || coindcxSecret.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('CoinDCX API keys required for auto trading. Please configure them in the CoinDCX tab first.'),
+            backgroundColor: AppTheme.dangerColor,
+          ),
+        );
+        return;
+      }
+      
+      // Verify CoinDCX keys are valid
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Verifying CoinDCX credentials for auto trading...')),
+        );
+      }
+      
+      try {
+        final response = await ApiClient.post(
+          Constants.verifyCoinDCXKeys,
+          body: {},
+        );
+        
+        if (response.statusCode != 200) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('CoinDCX credentials are invalid. Please update them in the CoinDCX tab.'),
+              backgroundColor: AppTheme.dangerColor,
+            ),
+          );
+          return;
+        }
+      } catch (e) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('CoinDCX verification failed: $e'),
+            backgroundColor: AppTheme.dangerColor,
+          ),
+        );
+        return;
+      }
     }
     
     final provider = context.read<SettingsProvider>();

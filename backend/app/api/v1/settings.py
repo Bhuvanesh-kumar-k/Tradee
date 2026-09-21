@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Header
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.core.database import get_db
@@ -6,6 +6,7 @@ from app.api.deps import get_current_user
 from app.schemas.settings import UserSettingsUpdate, AIKeyVerify
 from app.models.user import User
 from app.services.ai_service import AIService
+from app.services.coindcx_executor import CoinDCXExecutor
 import httpx
 
 router = APIRouter(prefix="/settings", tags=["User Settings"])
@@ -126,4 +127,98 @@ async def verify_ai_key(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"AI verification failed: {str(e)}"
+        )
+
+
+@router.post("/verify-coindcx-keys")
+async def verify_coindcx_keys(
+    x_coindcx_key: str = Header(None, alias="XCoinDCXKey"),
+    x_coindcx_secret: str = Header(None, alias="XCoinDCXSecret"),
+):
+    """Verify CoinDCX API keys by fetching futures balance"""
+    if not x_coindcx_key or not x_coindcx_secret:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="CoinDCX API key and secret are required"
+        )
+    
+    try:
+        executor = CoinDCXExecutor(x_coindcx_key, x_coindcx_secret)
+        balance_data = await executor.get_futures_balance()
+        
+        if balance_data is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid CoinDCX API credentials"
+            )
+        
+        # Check if balance data is valid
+        if isinstance(balance_data, list):
+            total_balance = 0.0
+            for item in balance_data:
+                if isinstance(item, dict) and item.get("currency") in ["USDT", "USDT_FUTURES"]:
+                    total_balance = float(item.get("balance", 0.0))
+                    break
+        elif isinstance(balance_data, dict):
+            total_balance = float(balance_data.get("balance", 0) or balance_data.get("total_balance", 0) or 0.0)
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Invalid response format from CoinDCX API"
+            )
+        
+        return {
+            "message": "CoinDCX keys verified successfully",
+            "balance": total_balance,
+            "currency": "USDT"
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"CoinDCX verification failed: {str(e)}"
+        )
+
+
+@router.post("/verify-telegram-credentials")
+async def verify_telegram_credentials(
+    api_id: str,
+    api_hash: str,
+):
+    """Verify Telegram API credentials by checking format"""
+    if not api_id or not api_hash:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Telegram API ID and Hash are required"
+        )
+    
+    try:
+        # Basic format validation
+        if not api_id.isdigit() or len(api_id) < 8:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid Telegram API ID format"
+            )
+        
+        if len(api_hash) < 32:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid Telegram API Hash format"
+            )
+        
+        # Note: Full validation would require attempting to connect to Telegram
+        # For now, we validate format only
+        return {
+            "message": "Telegram credentials format validated successfully",
+            "api_id": api_id
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Telegram verification failed: {str(e)}"
         )

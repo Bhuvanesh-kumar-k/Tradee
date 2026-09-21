@@ -15,6 +15,8 @@ class Constants {
   static const String login = '/auth/login';
   static const String settings = '/settings/me';
   static const String verifyAiKey = '/settings/verify-ai-key';
+  static const String verifyCoinDCXKeys = '/settings/verify-coindcx-keys';
+  static const String verifyTelegramCredentials = '/settings/verify-telegram-credentials';
   static const String scannerStatus = '/scanner/status';
   static const String checkCoin = '/scanner/check-coin';
   static const String scanAll = '/scanner/scan-all';

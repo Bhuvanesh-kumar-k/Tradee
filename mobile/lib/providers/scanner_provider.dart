@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:crypto_trading_app/utils/api_client.dart';
@@ -39,12 +40,17 @@ class ScannerProvider with ChangeNotifier {
   Map<String, dynamic> _status = {};
   List<ScannerLog> _logs = [];
   Map<String, dynamic> _marketScanData = {};
+  Map<String, dynamic>? _lastMarketScanData;
+  DateTime? _lastScanTime;
+  Timer? _periodicScanTimer;
   bool _isLoading = false;
   String? _errorMessage;
   
   Map<String, dynamic> get status => _status;
   List<ScannerLog> get logs => _logs;
   Map<String, dynamic> get marketScanData => _marketScanData;
+  Map<String, dynamic>? get lastMarketScanData => _lastMarketScanData;
+  DateTime? get lastScanTime => _lastScanTime;
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
   
@@ -124,6 +130,8 @@ class ScannerProvider with ChangeNotifier {
       
       if (response.statusCode == 200) {
         _marketScanData = jsonDecode(response.body);
+        _lastMarketScanData = _marketScanData;
+        _lastScanTime = DateTime.now();
         _isLoading = false;
         notifyListeners();
       } else {
@@ -136,6 +144,31 @@ class ScannerProvider with ChangeNotifier {
       _isLoading = false;
       notifyListeners();
     }
+  }
+  
+  Future<void> fetchLiveMarketScan({bool force = false}) async {
+    if (_lastMarketScanData != null && !force) {
+      return;
+    }
+    
+    await scanAllCoins();
+  }
+  
+  void setupAutoScanTimer(bool autoTradingEnabled, int intervalMinutes) {
+    _periodicScanTimer?.cancel();
+    
+    if (autoTradingEnabled) {
+      _periodicScanTimer = Timer.periodic(
+        Duration(minutes: intervalMinutes),
+        (_) => fetchLiveMarketScan(force: true),
+      );
+    }
+  }
+  
+  @override
+  void dispose() {
+    _periodicScanTimer?.cancel();
+    super.dispose();
   }
   
   void clearError() {

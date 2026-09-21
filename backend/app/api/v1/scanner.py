@@ -3,7 +3,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.api.deps import get_current_user, get_current_verified_user
 from app.models.user import User
-from app.schemas.scanner import SingleCoinCheckRequest, CoinAnalysisResult, ScannerLogResponse
+from app.schemas.scanner import (
+    SingleCoinCheckRequest,
+    CoinAnalysisResult,
+    ScannerLogResponse,
+    TimeframeCheckDetail
+)
 from app.core.strategy import evaluate_pair, evaluate_all_markets, get_market_trend, get_btc_macro_trend
 from app.core.news_calendar import circuit_breaker
 from app.models.scanner_log import ScannerLog
